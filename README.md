@@ -35,6 +35,13 @@ Every key, not just letters:
   Space, a word that is not in the dictionary is replaced by its
   closest dictionary word (edit distance 1–2). The original word
   stays in the left slot — tap it to undo the correction.
+  Predictive text and autocorrect are always on — there is no
+  toggle for them in the app.
+- **Auto-capitalization.** The first letter is capitalized at the
+  start of a field, after ". ", "? ", "! ", or a newline. A single
+  shift (manual or automatic) applies to one letter only; double-tap
+  Shift is still caps lock. It stays off in password, email, URL,
+  number and phone fields.
 - **Personal keyboard.** My Words in the app (add/remove by hand)
   are never autocorrected and are suggested first. Words you type
   twice in real use are also learned automatically; a one-off typo

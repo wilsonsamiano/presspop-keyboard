@@ -230,7 +230,7 @@ class KeyboardView @JvmOverloads constructor(
         return Key(shown, shown, KeyAction.CHAR, shown)
     }
 
-    private fun emojiKey(): Key = Key("😀", "😀", KeyAction.MODE, mode = KeyboardMode.EMOJI, weight = 1.2f)
+    private fun emojiKey(): Key = Key("😀", "😀", KeyAction.MODE, mode = KeyboardMode.EMOJI, weight = 1.0f)
 
     private val EMOJIS = listOf(
         "😀", "😂", "😍", "🥰", "😎", "🤔", "😢", "😡", "👍", "👏",
@@ -252,8 +252,8 @@ class KeyboardView @JvmOverloads constructor(
                 listOf(
                     Key("123", "123", KeyAction.MODE, mode = KeyboardMode.NUMBERS, weight = 1.5f),
                     emojiKey(),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 1.0f),
-                    Key("space", "space", KeyAction.SPACE, weight = 3.8f),
+                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
+                    Key("space", "space", KeyAction.SPACE, weight = 4.2f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
                 )
             )
@@ -267,9 +267,9 @@ class KeyboardView @JvmOverloads constructor(
                 listOf(
                     Key("ABC", "ABC", KeyAction.MODE, mode = KeyboardMode.LETTERS, weight = 1.5f),
                     emojiKey(),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 1.0f),
+                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
                     Key("🔢", "🔢", KeyAction.MODE, mode = KeyboardMode.NUMPAD, weight = 1.0f),
-                    Key("space", "space", KeyAction.SPACE, weight = 3.0f),
+                    Key("space", "space", KeyAction.SPACE, weight = 3.4f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
                 )
             )
@@ -284,8 +284,8 @@ class KeyboardView @JvmOverloads constructor(
                 listOf(
                     Key("ABC", "ABC", KeyAction.MODE, mode = KeyboardMode.LETTERS, weight = 1.5f),
                     emojiKey(),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 1.0f),
-                    Key("space", "space", KeyAction.SPACE, weight = 3.8f),
+                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
+                    Key("space", "space", KeyAction.SPACE, weight = 4.2f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
                 )
             )
@@ -311,8 +311,8 @@ class KeyboardView @JvmOverloads constructor(
                 EMOJIS.subList(20, 30).map { Key(it, it, KeyAction.CHAR, it) },
                 listOf(
                     Key("ABC", "ABC", KeyAction.MODE, mode = KeyboardMode.LETTERS, weight = 1.5f),
-                    Key("space", "space", KeyAction.SPACE, weight = 3.8f),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 1.0f),
+                    Key("space", "space", KeyAction.SPACE, weight = 4.0f),
+                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
                     Key("⌫", "⌫", KeyAction.DELETE, weight = 1.5f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
                 )
