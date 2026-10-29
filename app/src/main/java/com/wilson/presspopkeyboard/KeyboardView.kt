@@ -382,12 +382,24 @@ class KeyboardView @JvmOverloads constructor(
      * touch zone best matches the touch. Predicted next letters get
      * a 1.7x distance advantage, but never shrink any key below its
      * visible rect: a dead-centre tap still has distance 0 and wins.
+     *
+     * Gap fixed Oct 29, 2026: the prediction only covered letters.
+     * When the word just typed is already a complete dictionary or
+     * personal word, the most likely next key is SPACE, not another
+     * letter — and "b" sits directly above the spacebar, so a low
+     * thumb tap aimed at space kept landing on "b". Space now gets
+     * a 2.0x advantage in exactly that case, so a tap between "b"
+     * and space goes to space. A dead-centre tap on "b" still wins,
+     * as it should — no prediction overrides a clear tap.
      */
     private fun keyAt(x: Float, y: Float): KeyRect? {
         if (keyRects.isEmpty()) return null
         val predicted = if (mode == KeyboardMode.LETTERS) {
             Dictionary.nextLetters(typedWord, personalWords)
         } else emptySet()
+        val spacePredicted = mode == KeyboardMode.LETTERS &&
+            typedWord.isNotEmpty() &&
+            (Dictionary.isWord(typedWord) || typedWord in personalWords)
         var best: KeyRect? = null
         var bestScore = Float.MAX_VALUE
         for (kr in keyRects) {
@@ -402,10 +414,13 @@ class KeyboardView @JvmOverloads constructor(
                 else -> 0f
             }
             val dist = hypot(dx, dy)
-            val boost = if (kr.key.action == KeyAction.CHAR &&
-                kr.key.output.length == 1 &&
-                kr.key.output[0].lowercaseChar() in predicted
-            ) 1.7f else 1f
+            val boost = when {
+                kr.key.action == KeyAction.SPACE && spacePredicted -> 2.0f
+                kr.key.action == KeyAction.CHAR &&
+                    kr.key.output.length == 1 &&
+                    kr.key.output[0].lowercaseChar() in predicted -> 1.7f
+                else -> 1f
+            }
             val score = dist / boost
             if (score < bestScore) {
                 bestScore = score
