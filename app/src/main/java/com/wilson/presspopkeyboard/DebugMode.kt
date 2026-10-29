@@ -21,14 +21,43 @@ import android.widget.Toast
 object DebugMode {
     private const val PREFS = "presspop_settings"
     private const val KEY = "debug_mode"
+    private const val FILE = "presspop_debug_mode"
 
-    fun isOn(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY, false)
+    // File-based flag, Oct 29, 2026: the switch lives in the app
+    // (MainActivity) but the popups live in the keyboard service
+    // (PressPopIME), and Android caches SharedPreferences per
+    // process — so a toggle in the app did NOT reach a keyboard
+    // service that was already running, and debug "did nothing"
+    // even though the app button said On. A plain file is read
+    // fresh from disk on every check, so the keyboard sees the
+    // toggle immediately, with no restart and no stale cache.
+    // SharedPreferences is still written too, as a fallback for
+    // anything that reads the old key.
+    fun isOn(context: Context): Boolean {
+        return try {
+            val file = java.io.File(context.filesDir, FILE)
+            if (file.exists()) file.readText().trim() == "1" else
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(KEY, false)
+        } catch (e: Exception) {
+            try {
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(KEY, false)
+            } catch (e2: Exception) {
+                false
+            }
+        }
+    }
 
     fun setOn(context: Context, on: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY, on).apply()
+        try {
+            java.io.File(context.filesDir, FILE)
+                .writeText(if (on) "1" else "0")
+        } catch (e: Exception) {
+            // SharedPreferences fallback above still carries the value.
+        }
     }
 
     fun toast(context: Context, message: String) {
