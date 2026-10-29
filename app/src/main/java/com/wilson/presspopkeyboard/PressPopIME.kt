@@ -80,6 +80,29 @@ class PressPopIME : InputMethodService() {
     // passwords, email addresses, URLs, numbers and phone fields.
     private var autoCapitalize = true
 
+    // Dark mode is read fresh every time the input view is created
+    // or a new field starts — NOT just in onCreate(), where the
+    // service may have started long before the user toggled the
+    // theme in the app. Reading it only in onCreate() was why
+    // toggling Dark in the app appeared to do nothing.
+    private fun refreshDarkMode() {
+        val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+        darkMode = settings.getBoolean("dark_mode", false)
+        if (::keyboardView.isInitialized) {
+            keyboardView.darkMode = darkMode
+        }
+        if (::strip.isInitialized) {
+            strip.setBackgroundColor(
+                if (darkMode) Color.parseColor("#111827") else Color.WHITE
+            )
+        }
+        if (::languageButton.isInitialized) {
+            languageButton.setTextColor(
+                if (darkMode) Color.WHITE else Color.BLACK
+            )
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         personal = PersonalDictionary(this)
@@ -125,7 +148,7 @@ class PressPopIME : InputMethodService() {
     override fun onCreateInputView(): View {
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         keyboardView = KeyboardView(this)
-        keyboardView.darkMode = darkMode
+        refreshDarkMode()
         keyboardView.showNumberRow = settings.getBoolean("number_row", false)
         keyboardView.personalWords = personal.allPersonalWords()
 
@@ -146,6 +169,7 @@ class PressPopIME : InputMethodService() {
             text = "📋"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
+            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
             setOnClickListener { toggleClipboardPanel() }
             strip.addView(this)
         }
@@ -163,6 +187,7 @@ class PressPopIME : InputMethodService() {
             text = languageLabel()
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 16f
+            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
             setOnClickListener { toggleLanguage() }
             strip.addView(this)
         }
@@ -175,6 +200,7 @@ class PressPopIME : InputMethodService() {
             text = "GIF"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 16f
+            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
             setOnClickListener { toggleGifPanel() }
             strip.addView(this)
         }
@@ -762,6 +788,7 @@ class PressPopIME : InputMethodService() {
             keyboardView.shiftLock = false
             keyboardView.setTypedWord("")
             lastCorrected = null
+            refreshDarkMode()
             refreshSuggestions("")
             // Capitalize the first letter of a fresh/empty field, or
             // when the existing text already ends at a sentence boundary.

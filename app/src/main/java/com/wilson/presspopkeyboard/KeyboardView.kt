@@ -73,6 +73,12 @@ class KeyboardView @JvmOverloads constructor(
         set(value) {
             field = value
             rebuildRows()
+            // Row counts differ between modes (e.g. 5 rows in Letters
+            // with the number row on, 4 in Numbers), so the measured
+            // height must be recomputed — invalidate() alone keeps the
+            // old height, which is what made the bottom row (and the
+            // spacebar) appear to jump up a row on switching modes.
+            requestLayout()
             invalidate()
         }
 
@@ -96,6 +102,7 @@ class KeyboardView @JvmOverloads constructor(
         set(value) {
             field = value
             rebuildRows()
+            requestLayout()
             invalidate()
         }
 
@@ -230,7 +237,7 @@ class KeyboardView @JvmOverloads constructor(
         return Key(shown, shown, KeyAction.CHAR, shown)
     }
 
-    private fun emojiKey(): Key = Key("😀", "😀", KeyAction.MODE, mode = KeyboardMode.EMOJI, weight = 1.0f)
+    private fun emojiKey(): Key = Key("😀", "😀", KeyAction.MODE, mode = KeyboardMode.EMOJI, weight = 0.9f)
 
     private val EMOJIS = listOf(
         "😀", "😂", "😍", "🥰", "😎", "🤔", "😢", "😡", "👍", "👏",
@@ -250,11 +257,12 @@ class KeyboardView @JvmOverloads constructor(
                     "zxcvbnm".map { charKey(it) } +
                     listOf(Key("⌫", "⌫", KeyAction.DELETE, weight = 1.5f)),
                 listOf(
-                    Key("123", "123", KeyAction.MODE, mode = KeyboardMode.NUMBERS, weight = 1.5f),
+                    Key("123", "123", KeyAction.MODE, mode = KeyboardMode.NUMBERS, weight = 1.3f),
                     emojiKey(),
                     Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
+                    Key(",", ",", KeyAction.CHAR, ",", weight = 1.0f),
                     Key("space", "space", KeyAction.SPACE, weight = 4.2f),
-                    Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
+                    Key("⏎", "⏎", KeyAction.ENTER, weight = 1.3f)
                 )
             )
             KeyboardMode.NUMBERS -> listOf(
@@ -326,7 +334,13 @@ class KeyboardView @JvmOverloads constructor(
         gap = dp(6f)
         rowHeight = dp(52f)
         val rects = mutableListOf<KeyRect>()
-        var top = gap
+        // Bottom-anchor the rows: if this view is still at its old
+        // (taller) height when a mode with fewer rows is drawn, the
+        // bottom row — and the spacebar in it — stays at the bottom
+        // instead of floating one row up. When the height matches the
+        // rows exactly, this is the same as starting at `gap`.
+        val rowsHeight = rowHeight * rows.size + gap * (rows.size + 1)
+        var top = if (height > rowsHeight) height - rowsHeight + gap else gap
         val insetRowIndex = if (showNumberRow && mode == KeyboardMode.LETTERS) 2 else 1
         for ((rowIndex, row) in rows.withIndex()) {
             val totalWeight = row.sumOf { it.weight.toDouble() }.toFloat()
@@ -566,7 +580,15 @@ class KeyboardView @JvmOverloads constructor(
                     }
                     KeyAction.CHAR -> {
                         if (mode == KeyboardMode.LETTERS) {
-                            typedWord += key.output.lowercase()
+                            // Only letters extend the word being typed.
+                            // Punctuation (e.g. the comma key on the main
+                            // row) ends the word, or autocorrect would
+                            // try to correct "word," as if it were a word.
+                            if (key.output.length == 1 && key.output[0].isLetter()) {
+                                typedWord += key.output.lowercase()
+                            } else {
+                                typedWord = ""
+                            }
                             noteTypedWordChange()
                         } else if (mode == KeyboardMode.NUMBERS || mode == KeyboardMode.SYMBOLS ||
                             mode == KeyboardMode.NUMPAD
