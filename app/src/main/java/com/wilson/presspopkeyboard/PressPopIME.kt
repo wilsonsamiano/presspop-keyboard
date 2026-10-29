@@ -340,6 +340,21 @@ class PressPopIME : InputMethodService() {
             }
         }
 
+        // Vertical space-cursor: send the system's line-up / line-down
+        // key, so the app moves the cursor by its own (wrapped) lines
+        // instead of the keyboard guessing at the app's layout.
+        keyboardView.onCursorLineMove = { lines ->
+            val ic = currentInputConnection
+            if (ic != null) {
+                val keyCode = if (lines > 0) KeyEvent.KEYCODE_DPAD_DOWN
+                    else KeyEvent.KEYCODE_DPAD_UP
+                repeat(kotlin.math.abs(lines)) {
+                    ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+                    ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+                }
+            }
+        }
+
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(strip)

@@ -34,7 +34,9 @@ import kotlin.math.roundToInt
  * - Emoji page, via the smiley key. Emoji is a mode like 123, not
  *   bolted onto the letter rows.
  * - Space-bar cursor: hold space, then slide left/right to move the
- *   text cursor, iPhone-style.
+ *   text cursor, and up/down to move it a line at a time,
+ *   iPhone-style. Horizontal travel is 8dp per character, vertical
+ *   travel is 30dp per line.
  * - Double-tap Shift = caps lock. Double-tap Space = ". " is handled
  *   in PressPopIME, where the text before the cursor is known.
  * - Dark / light theme, from the app's setting.
@@ -65,6 +67,7 @@ class KeyboardView @JvmOverloads constructor(
     var onKey: ((Key) -> Unit)? = null
     var onSwipeWord: ((String) -> Unit)? = null
     var onCursorMove: ((Int) -> Unit)? = null
+    var onCursorLineMove: ((Int) -> Unit)? = null
     var onWordChanged: ((String) -> Unit)? = null
 
     var personalWords: Set<String> = emptySet()
@@ -139,6 +142,8 @@ class KeyboardView @JvmOverloads constructor(
     private var cursorMode = false
     private var lastCursorX = 0f
     private var cursorAccum = 0f
+    private var lastCursorY = 0f
+    private var cursorAccumY = 0f
 
     private var lastShiftTap = 0L
 
@@ -200,7 +205,9 @@ class KeyboardView @JvmOverloads constructor(
         if (spaceHeld) {
             cursorMode = true
             lastCursorX = downPoint.x
+            lastCursorY = downPoint.y
             cursorAccum = 0f
+            cursorAccumY = 0f
             performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             invalidate()
         }
@@ -469,10 +476,14 @@ class KeyboardView @JvmOverloads constructor(
                     return true
                 }
                 if (cursorMode) {
+                    // Horizontal: 8dp per character (was 14dp), so a
+                    // half-screen slide now moves about twice as many
+                    // characters and a long jump no longer needs the
+                    // whole screen width.
                     val dx = event.x - lastCursorX
                     cursorAccum += dx
                     lastCursorX = event.x
-                    val step = dp(14f)
+                    val step = dp(8f)
                     while (cursorAccum >= step) {
                         cursorAccum -= step
                         onCursorMove?.invoke(1)
@@ -480,6 +491,21 @@ class KeyboardView @JvmOverloads constructor(
                     while (cursorAccum <= -step) {
                         cursorAccum += step
                         onCursorMove?.invoke(-1)
+                    }
+                    // Vertical: 30dp per line, up or down. This sends
+                    // the system's line-up / line-down command, so it
+                    // follows the app's own line wrapping.
+                    val dy = event.y - lastCursorY
+                    cursorAccumY += dy
+                    lastCursorY = event.y
+                    val stepY = dp(30f)
+                    while (cursorAccumY >= stepY) {
+                        cursorAccumY -= stepY
+                        onCursorLineMove?.invoke(1)
+                    }
+                    while (cursorAccumY <= -stepY) {
+                        cursorAccumY += stepY
+                        onCursorLineMove?.invoke(-1)
                     }
                     return true
                 }
@@ -728,7 +754,7 @@ class KeyboardView @JvmOverloads constructor(
         if (cursorMode) {
             textPaint.textSize = dp(14f)
             textPaint.color = Color.parseColor("#3B82F6")
-            canvas.drawText("◀ cursor ▶", width / 2f, dp(18f), textPaint)
+            canvas.drawText("◀ cursor ▶ ▲▼", width / 2f, dp(18f), textPaint)
         }
     }
 }
