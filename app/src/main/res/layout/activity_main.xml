@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="PressPop Keyboard"
+        android:textSize="26sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/versionText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="16sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="1. Tap Enable, then turn on PressPop Keyboard.\n2. Tap Switch keyboard, then pick PressPop.\n3. Open any text field and type - every key pops up, space included." />
+
+    <Button
+        android:id="@+id/enableButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Enable keyboard" />
+
+    <Button
+        android:id="@+id/switchButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Switch keyboard" />
+
+    <Button
+        android:id="@+id/updateButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Check for updates" />
+
+    <Button
+        android:id="@+id/coffeeButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Buy Me a Coffee" />
+
+    <Button
+        android:id="@+id/themeButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Theme: Light (tap for Dark)" />
+
+    <Button
+        android:id="@+id/micButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Allow microphone for voice typing" />
+
+    <Button
+        android:id="@+id/numberRowButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Number row: Off (tap to turn on)" />
+
+    <Button
+        android:id="@+id/oneHandedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Keyboard width: Full (tap for Left-handed)" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Clipboard: tap 📋 in the suggestion strip to paste a recent copy. History is stored on this device only (up to 20 items) and can be cleared from that panel. Clear it after pasting anything sensitive." />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="GIF / sticker search — Tenor API key"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Tap GIF in the keyboard, type a search, tap a GIF to insert it (works in apps that accept GIFs, like Messages or WhatsApp). This needs a free Tenor API key — get one from the Tenor developer site and paste it below. Without a key, the GIF panel will tell you so instead of failing silently." />
+
+    <EditText
+        android:id="@+id/tenorInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Tenor API key" />
+
+    <Button
+        android:id="@+id/saveTenorButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Save Tenor API key" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="My Words — personal words are never autocorrected and are suggested first. Words you type twice are also learned automatically."
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/wordsText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" />
+
+    <EditText
+        android:id="@+id/wordInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Type a word, e.g. a name or nickname" />
+
+    <Button
+        android:id="@+id/addWordButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Add to My Words" />
+
+    <Button
+        android:id="@+id/removeWordButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Remove from My Words" />
+
+    <Button
+        android:id="@+id/autoUpdateButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Auto-check for updates: On (tap to turn off)" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Languages — other people can install their own"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Built in: English, Tagalog, Spanish. Tap the EN/TL/ES button in the keyboard to cycle languages. For another language, import or download a plain-text word list (one word per line) and it becomes a custom pack." />
+
+    <Button
+        android:id="@+id/langEnButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Language: English" />
+
+    <Button
+        android:id="@+id/langTlButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Language: Tagalog" />
+
+    <Button
+        android:id="@+id/langEsButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Language: Spanish" />
+
+    <EditText
+        android:id="@+id/langNameInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Custom language name, e.g. French" />
+
+    <Button
+        android:id="@+id/importLangButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Import word-list file for custom language" />
+
+    <EditText
+        android:id="@+id/langUrlInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Or paste a URL to a word list (one word per line)" />
+
+    <Button
+        android:id="@+id/downloadLangButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Download custom language pack" />
+
+    <TextView
+        android:id="@+id/customLangText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Anonymous error reports"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/errorInfoText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
+    <Button
+        android:id="@+id/errorToggleButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Anonymous error reports: Off (tap to turn on)" />
+
+    <Button
+        android:id="@+id/sendErrorsButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Send error reports" />
+
+    <Button
+        android:id="@+id/clearErrorsButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Clear stored error reports" />
+
+</LinearLayout>
