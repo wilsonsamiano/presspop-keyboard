@@ -149,7 +149,7 @@ class PressPopIME : InputMethodService() {
         // the old boolean "tagalog" setting is still honoured for upgrades.
         val storedCode = settings.getString("language_code", null)
             ?: if (settings.getBoolean("tagalog", false)) "tl" else "en"
-        Dictionary.setLanguageCode(storedCode)
+        Dictionary.languageCode = storedCode
         languageButton = TextView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 (48 * resources.displayMetrics.density).toInt(),
@@ -335,7 +335,7 @@ class PressPopIME : InputMethodService() {
         val currentIndex = options.indexOf(current)
         val nextIndex = if (currentIndex < 0 || currentIndex + 1 >= options.size) 0 else currentIndex + 1
         val next = options[nextIndex]
-        Dictionary.setLanguageCode(next)
+        Dictionary.languageCode = next
         getSharedPreferences("presspop_settings", MODE_PRIVATE)
             .edit().putString("language_code", next).apply()
         if (::languageButton.isInitialized) {

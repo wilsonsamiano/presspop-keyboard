@@ -39,10 +39,11 @@ object Dictionary {
         languageCode = if (tagalog) "tl" else "en"
     }
 
-    fun setLanguageCode(code: String) {
-        languageCode = code
-    }
-
+    // NOTE: there is deliberately NO setLanguageCode() function here.
+    // `var languageCode` already generates a JVM setter named
+    // setLanguageCode(String), so adding one clashes at compile time
+    // ("Platform declaration clash"). Callers assign directly:
+    // Dictionary.languageCode = code
     fun isTagalog(): Boolean = languageCode == "tl"
 
     /** Common Spanish words, for the built-in Spanish pack. Same

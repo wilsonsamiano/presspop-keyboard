@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun setLanguage(code: String, name: String) {
-            Dictionary.setLanguageCode(code)
+            Dictionary.languageCode = code
             settings.edit().putString("language_code", code).apply()
             Toast.makeText(this, "Language: $name. Switch keyboards away and back to apply it.", Toast.LENGTH_LONG).show()
         }
