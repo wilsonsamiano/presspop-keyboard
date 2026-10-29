@@ -475,6 +475,18 @@ class KeyboardView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                // A slow swipe start could trigger the long-press
+                // accent picker (500 ms on one key) and then stay
+                // trapped in it, so the swipe never traced at all.
+                // Sliding more than 20dp away cancels the picker and
+                // falls through to normal swipe tracing below.
+                if (variantMode &&
+                    hypot(event.x - downPoint.x, event.y - downPoint.y) > dp(20f)
+                ) {
+                    variantMode = false
+                    variantSelected = -1
+                    invalidate()
+                }
                 if (variantMode) {
                     // Slide across the accent row to pick a variant.
                     val rect = pressedRect
@@ -532,25 +544,34 @@ class KeyboardView @JvmOverloads constructor(
                     handler.removeCallbacks(longPressRunnable)
                 }
                 val hit = keyAt(event.x, event.y)
+                // Swipe tracing, Oct 29, 2026 (second fix): only record
+                // a letter when the finger is actually inside that
+                // key's rectangle — keyAt() returns the NEAREST key,
+                // so recording on nearest alone recorded every key
+                // passed NEAR and made garbage traces. But the first
+                // version of this fix gated recording on the key
+                // CHANGING, and that broke tracing the other way:
+                // pressedKey already changes to a key while the finger
+                // is still in the gap before it, so by the time the
+                // finger actually enters that key, hit.key ==
+                // pressedKey and the letter was never recorded at all.
+                // Recording is therefore independent of the key-change
+                // check: every move event inside a letter key records
+                // that letter (deduped against the last one), whether
+                // or not the pressed key just changed.
+                if (hit != null && hit.key.action == KeyAction.CHAR &&
+                    mode == KeyboardMode.LETTERS &&
+                    event.x in hit.rect.left..hit.rect.right &&
+                    event.y in hit.rect.top..hit.rect.bottom
+                ) {
+                    val letter = hit.key.output.lowercase()
+                    if (visitedLetters.isEmpty() || visitedLetters.last() != letter) {
+                        visitedLetters.add(letter)
+                    }
+                }
                 if (hit != null && hit.key != pressedKey) {
                     pressedKey = hit.key
                     pressedRect = hit.rect
-                    // Swipe tracing, Oct 29, 2026: only record a letter
-                    // when the finger is actually inside that key's
-                    // rectangle. keyAt() returns the NEAREST key, so
-                    // the old code recorded every key the finger passed
-                    // NEAR — a straight swipe from S to W recorded
-                    // E, R, T, Y, ... on the way, and the trace became
-                    // garbage that no dictionary word could match.
-                    if (hit.key.action == KeyAction.CHAR && mode == KeyboardMode.LETTERS &&
-                        event.x in hit.rect.left..hit.rect.right &&
-                        event.y in hit.rect.top..hit.rect.bottom
-                    ) {
-                        val letter = hit.key.output.lowercase()
-                        if (visitedLetters.isEmpty() || visitedLetters.last() != letter) {
-                            visitedLetters.add(letter)
-                        }
-                    }
                     if (hit.key.action == KeyAction.DELETE) {
                         deleteRepeating = true
                         handler.removeCallbacks(deleteRepeat)

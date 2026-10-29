@@ -20,13 +20,13 @@ android {
         applicationId = "com.wilson.presspopkeyboard"
         minSdk = 26
         targetSdk = 34
-        // Bumped Oct 29, 2026: installed build is now code 3 /
-        // beta 0.1.2, so the next build must be code 4 to count as an
+        // Bumped Oct 29, 2026: installed build is now code 4 /
+        // beta 0.1.3, so the next build must be code 5 to count as an
         // update (Android and the in-app updater, tag vN =
         // versionCode, both require a HIGHER code). Grok must build
         // this exact version, not bump it again locally.
-        versionCode = 4
-        versionName = "beta 0.1.3"
+        versionCode = 5
+        versionName = "beta 0.1.4"
     }
 
     signingConfigs {
