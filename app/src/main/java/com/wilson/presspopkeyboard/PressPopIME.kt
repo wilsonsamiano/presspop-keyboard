@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
+import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -75,6 +76,9 @@ class PressPopIME : InputMethodService() {
     private var lastSpaceTap = 0L
     private var lastCorrected: Pair<String, String>? = null // (typed, correction)
     private var darkMode = false
+    // Auto-capitalization for this field: on for plain text, off for
+    // passwords, email addresses, URLs, numbers and phone fields.
+    private var autoCapitalize = true
 
     override fun onCreate() {
         super.onCreate()
@@ -102,6 +106,7 @@ class PressPopIME : InputMethodService() {
                     keyboardView.setTypedWord("")
                     refreshSuggestions("")
                 }
+                updateAutoShift()
             },
             onError = { message ->
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -256,13 +261,26 @@ class PressPopIME : InputMethodService() {
                 if (ic != null) {
                     when (key.action) {
                         KeyAction.VOICE -> handleVoice()
-                        KeyAction.CHAR -> ic.commitText(key.output, 1)
+                        KeyAction.CHAR -> {
+                            ic.commitText(key.output, 1)
+                            // One-shot shift: a single (non-locked) shift,
+                            // manual or automatic, applies to one letter only.
+                            if (keyboardView.shiftOn && !keyboardView.shiftLock &&
+                                key.output.length == 1 && key.output[0].isLetter()
+                            ) {
+                                keyboardView.shiftOn = false
+                            }
+                        }
                         KeyAction.SPACE -> handleSpace()
-                        KeyAction.DELETE -> ic.deleteSurroundingText(1, 0)
+                        KeyAction.DELETE -> {
+                            ic.deleteSurroundingText(1, 0)
+                            updateAutoShift()
+                        }
                         KeyAction.ENTER -> {
                             commitCurrentWordForLearning()
                             ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
                             ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                            updateAutoShift()
                         }
                         else -> Unit
                     }
@@ -272,7 +290,10 @@ class PressPopIME : InputMethodService() {
 
         keyboardView.onSwipeWord = { word ->
             val ic = currentInputConnection
-            ic?.commitText(word, 1)
+            ic?.commitText(capitalizeForSentenceStart(word, 0), 1)
+            if (keyboardView.shiftOn && !keyboardView.shiftLock) {
+                keyboardView.shiftOn = false
+            }
             personal.noteTyped(word)
             keyboardView.personalWords = personal.allPersonalWords()
             keyboardView.setTypedWord("")
@@ -558,6 +579,51 @@ class PressPopIME : InputMethodService() {
         }
     }
 
+    // Auto-capitalization: the next letter is capitalized at the
+    // start of a field, after ". ", "? ", "! ", or a newline.
+    // updateAutoShift() only ever turns shift ON, so it never
+    // overrides a manual shift choice; the one-shot rule in onKey
+    // turns a non-locked shift back off after one letter.
+    private fun isSentenceStart(text: CharSequence?): Boolean {
+        if (text == null) return false
+        val trimmed = text.trimEnd()
+        return trimmed.isEmpty() || trimmed.last() in ".?!\n"
+    }
+
+    private fun updateAutoShift() {
+        if (!autoCapitalize || !::keyboardView.isInitialized ||
+            keyboardView.shiftLock
+        ) return
+        val ic = currentInputConnection ?: return
+        val before = try {
+            ic.getTextBeforeCursor(64, 0)
+        } catch (e: Exception) {
+            null
+        }
+        if (isSentenceStart(before)) {
+            keyboardView.shiftOn = true
+        }
+    }
+
+    // Capitalize [word] when it starts a sentence. [charsBeforeWord]
+    // is how many characters of already-committed text belong to the
+    // word being replaced (0 for a swipe word, which is not typed yet).
+    private fun capitalizeForSentenceStart(word: String, charsBeforeWord: Int): String {
+        if (!autoCapitalize || word.isEmpty()) return word
+        val ic = currentInputConnection ?: return word
+        val before = try {
+            ic.getTextBeforeCursor(charsBeforeWord + 64, 0)?.toString()
+        } catch (e: Exception) {
+            null
+        } ?: return word
+        val beforeWord = before.dropLast(charsBeforeWord.coerceAtMost(before.length))
+        return if (isSentenceStart(beforeWord)) {
+            word.replaceFirstChar { it.uppercaseChar() }
+        } else {
+            word
+        }
+    }
+
     private fun handleSpace() {
         val ic = currentInputConnection ?: return
         val word = keyboardView.typedWord
@@ -569,6 +635,7 @@ class PressPopIME : InputMethodService() {
             ic.deleteSurroundingText(1, 0)
             ic.commitText(". ", 1)
             lastSpaceTap = 0L
+            updateAutoShift()
             return
         }
         lastSpaceTap = now
@@ -580,9 +647,11 @@ class PressPopIME : InputMethodService() {
             ) {
                 val correction = Dictionary.bestCorrection(word, personal.allPersonalWords())
                 if (correction != null) {
+                    val finalCorrection =
+                        capitalizeForSentenceStart(correction, word.length)
                     ic.deleteSurroundingText(word.length, 0)
-                    ic.commitText(correction, 1)
-                    lastCorrected = word to correction
+                    ic.commitText(finalCorrection, 1)
+                    lastCorrected = word to finalCorrection
                     personal.noteTyped(word)
                 } else {
                     personal.noteTyped(word)
@@ -595,6 +664,7 @@ class PressPopIME : InputMethodService() {
         ic.commitText(" ", 1)
         keyboardView.setTypedWord("")
         refreshSuggestions("")
+        updateAutoShift()
     }
 
     private fun commitCurrentWordForLearning() {
@@ -641,18 +711,28 @@ class PressPopIME : InputMethodService() {
         if (index == 0 && corrected != null && keyboardView.typedWord.isEmpty() &&
             suggestion == corrected.first
         ) {
+            // Capitalize before deleting: the helper reads the text
+            // before the cursor, which must still contain the word.
+            val restored = capitalizeForSentenceStart(
+                corrected.first, corrected.second.length
+            )
             ic.deleteSurroundingText(corrected.second.length, 0)
-            ic.commitText(corrected.first, 1)
+            ic.commitText(restored, 1)
             lastCorrected = null
             keyboardView.setTypedWord(corrected.first)
             refreshSuggestions(corrected.first)
             return
         }
         val word = keyboardView.typedWord
+        // Capitalize before deleting, for the same reason as above.
+        val finalSuggestion = capitalizeForSentenceStart(suggestion, word.length)
         if (word.isNotEmpty()) {
             ic.deleteSurroundingText(word.length, 0)
         }
-        ic.commitText(suggestion, 1)
+        ic.commitText(finalSuggestion, 1)
+        if (keyboardView.shiftOn && !keyboardView.shiftLock) {
+            keyboardView.shiftOn = false
+        }
         lastCorrected = null
         keyboardView.setTypedWord(suggestion)
         refreshSuggestions(suggestion)
@@ -664,6 +744,18 @@ class PressPopIME : InputMethodService() {
     ) {
         super.onStartInputView(info, restarting)
         if (gifMode) closeGifPanel()
+        // Auto-capitalization only for plain text fields.
+        val inputType = info?.inputType ?: InputType.TYPE_CLASS_TEXT
+        val fieldClass = inputType and InputType.TYPE_MASK_CLASS
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        autoCapitalize = fieldClass == InputType.TYPE_CLASS_TEXT &&
+            variation != InputType.TYPE_TEXT_VARIATION_PASSWORD &&
+            variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD &&
+            variation != InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS &&
+            variation != InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS &&
+            variation != InputType.TYPE_TEXT_VARIATION_URI &&
+            variation != InputType.TYPE_TEXT_VARIATION_WEB_URI &&
+            variation != InputType.TYPE_TEXT_VARIATION_FILTER
         if (::keyboardView.isInitialized) {
             keyboardView.mode = KeyboardMode.LETTERS
             keyboardView.shiftOn = false
@@ -671,6 +763,9 @@ class PressPopIME : InputMethodService() {
             keyboardView.setTypedWord("")
             lastCorrected = null
             refreshSuggestions("")
+            // Capitalize the first letter of a fresh/empty field, or
+            // when the existing text already ends at a sentence boundary.
+            updateAutoShift()
         }
     }
 }
