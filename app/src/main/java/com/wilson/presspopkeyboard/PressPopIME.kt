@@ -803,7 +803,6 @@ class PressPopIME : InputMethodService() {
             variation != InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS &&
             variation != InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS &&
             variation != InputType.TYPE_TEXT_VARIATION_URI &&
-            variation != InputType.TYPE_TEXT_VARIATION_WEB_URI &&
             variation != InputType.TYPE_TEXT_VARIATION_FILTER
         if (::keyboardView.isInitialized) {
             keyboardView.mode = KeyboardMode.LETTERS
