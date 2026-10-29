@@ -20,8 +20,14 @@ android {
         applicationId = "com.wilson.presspopkeyboard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "beta 0.1.0"
+        // Bumped Oct 29, 2026: Grok's local build already shipped as
+        // code 2 / beta 0.1.1, so the repo must move to code 3 to stay
+        // ahead of installed builds — Android and the in-app updater
+        // (tag vN = versionCode) both require a HIGHER code to count
+        // as an update. Grok must build this exact version, not bump
+        // it again locally.
+        versionCode = 3
+        versionName = "beta 0.1.2"
     }
 
     signingConfigs {
