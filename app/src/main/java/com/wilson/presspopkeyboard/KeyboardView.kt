@@ -408,15 +408,22 @@ class KeyboardView @JvmOverloads constructor(
      * a 2.0x advantage in exactly that case, so a tap between "b"
      * and space goes to space. A dead-centre tap on "b" still wins,
      * as it should — no prediction overrides a clear tap.
+     *
+     * Widened again Oct 29, 2026, from Wilson's report that he keeps
+     * hitting "v" for spacebar: "v" also sits directly above the
+     * spacebar, and the old boost only applied after a complete
+     * word. Space now gets the 2.0x advantage unconditionally, in
+     * every mode and at any point in a word, so a tap in the gap
+     * between "v" (or "b", "c", "n", "m") and space goes to space.
+     * A dead-centre tap on "v" itself still has distance 0 and
+     * still wins — the boost only decides near-misses, which is
+     * exactly the case that was going wrong.
      */
     private fun keyAt(x: Float, y: Float): KeyRect? {
         if (keyRects.isEmpty()) return null
         val predicted = if (mode == KeyboardMode.LETTERS) {
             Dictionary.nextLetters(typedWord, personalWords)
         } else emptySet()
-        val spacePredicted = mode == KeyboardMode.LETTERS &&
-            typedWord.isNotEmpty() &&
-            (Dictionary.isWord(typedWord) || typedWord in personalWords)
         var best: KeyRect? = null
         var bestScore = Float.MAX_VALUE
         for (kr in keyRects) {
@@ -432,7 +439,7 @@ class KeyboardView @JvmOverloads constructor(
             }
             val dist = hypot(dx, dy)
             val boost = when {
-                kr.key.action == KeyAction.SPACE && spacePredicted -> 2.0f
+                kr.key.action == KeyAction.SPACE -> 2.0f
                 kr.key.action == KeyAction.CHAR &&
                     kr.key.output.length == 1 &&
                     kr.key.output[0].lowercaseChar() in predicted -> 1.7f
