@@ -203,7 +203,7 @@ class PressPopIME : InputMethodService() {
         }
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gifQueryText = TextView(this).apply {
+            gifQueryText = TextView(this@PressPopIME).apply {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 text = "Search GIFs…"
                 textSize = 16f
@@ -211,12 +211,12 @@ class PressPopIME : InputMethodService() {
                 setPadding(24, 16, 24, 16)
             }
             addView(gifQueryText)
-            Button(this).apply {
+            Button(this@PressPopIME).apply {
                 text = "Search"
                 setOnClickListener { searchGifs() }
                 addView(this)
             }
-            Button(this).apply {
+            Button(this@PressPopIME).apply {
                 text = "GIF/Sticker"
                 setOnClickListener {
                     gifStickerMode = !gifStickerMode
@@ -229,7 +229,7 @@ class PressPopIME : InputMethodService() {
                 }
                 addView(this)
             }
-            Button(this).apply {
+            Button(this@PressPopIME).apply {
                 text = "Close"
                 setOnClickListener { closeGifPanel() }
                 addView(this)
@@ -251,20 +251,22 @@ class PressPopIME : InputMethodService() {
         keyboardView.onKey = { key ->
             if (gifMode) {
                 handleGifKey(key)
-                return@onKey
-            }
-            val ic = currentInputConnection ?: return@onKey
-            when (key.action) {
-                KeyAction.VOICE -> handleVoice()
-                KeyAction.CHAR -> ic.commitText(key.output, 1)
-                KeyAction.SPACE -> handleSpace()
-                KeyAction.DELETE -> ic.deleteSurroundingText(1, 0)
-                KeyAction.ENTER -> {
-                    commitCurrentWordForLearning()
-                    ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-                    ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            } else {
+                val ic = currentInputConnection
+                if (ic != null) {
+                    when (key.action) {
+                        KeyAction.VOICE -> handleVoice()
+                        KeyAction.CHAR -> ic.commitText(key.output, 1)
+                        KeyAction.SPACE -> handleSpace()
+                        KeyAction.DELETE -> ic.deleteSurroundingText(1, 0)
+                        KeyAction.ENTER -> {
+                            commitCurrentWordForLearning()
+                            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                        }
+                        else -> Unit
+                    }
                 }
-                else -> Unit
             }
         }
 
