@@ -245,6 +245,35 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Stored error reports cleared.", Toast.LENGTH_SHORT).show()
         }
 
+        // General debug mode (off by default): when on, swipe,
+        // autocorrect, and suggestion taps each show one short
+        // readout with what the feature saw and decided, so a
+        // customer can reproduce a problem and email that line
+        // instead of describing it. When off, the keyboard shows
+        // no debug popups at all.
+        val debugButton = findViewById<Button>(R.id.debugButton)
+        fun refreshDebugLabel() {
+            debugButton.text = if (DebugMode.isOn(this)) {
+                "Debug mode: On (tap to turn off)"
+            } else {
+                "Debug mode: Off (tap to turn on)"
+            }
+        }
+        refreshDebugLabel()
+        debugButton.setOnClickListener {
+            DebugMode.setOn(this, !DebugMode.isOn(this))
+            refreshDebugLabel()
+            Toast.makeText(
+                this,
+                if (DebugMode.isOn(this)) {
+                    "Debug mode on. Swipe, autocorrect, and suggestion taps will show a short readout."
+                } else {
+                    "Debug mode off. No debug popups."
+                },
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
         val wordsText = findViewById<TextView>(R.id.wordsText)
         val wordInput = findViewById<EditText>(R.id.wordInput)
         fun refreshWords() {

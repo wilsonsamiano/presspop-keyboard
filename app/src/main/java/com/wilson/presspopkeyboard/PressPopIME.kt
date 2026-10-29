@@ -718,6 +718,7 @@ class PressPopIME : InputMethodService() {
                 if (correction != null) {
                     val finalCorrection =
                         capitalizeForSentenceStart(correction, word.length)
+                    DebugMode.toast(this, "Autocorrect: '$word' -> '$finalCorrection'")
                     ic.deleteSurroundingText(word.length, 0)
                     ic.commitText(finalCorrection, 1)
                     lastCorrected = word to finalCorrection
@@ -726,9 +727,11 @@ class PressPopIME : InputMethodService() {
                     // keep, and learning it after two corrections
                     // would make autocorrect stop correcting it.
                 } else {
+                    DebugMode.toast(this, "Autocorrect: '$word' -> no correction (left as typed)")
                     personal.noteTyped(word)
                 }
             } else {
+                DebugMode.toast(this, "Autocorrect: '$word' left alone (known/personal word)")
                 personal.noteTyped(word)
             }
             keyboardView.personalWords = personal.allPersonalWords()
@@ -778,6 +781,10 @@ class PressPopIME : InputMethodService() {
         val view = suggestionViews.getOrNull(index) ?: return
         val suggestion = view.text.toString()
         if (suggestion.isEmpty()) return
+        DebugMode.toast(
+            this,
+            "Suggestion tapped: '$suggestion' (typed was '${keyboardView.typedWord}')"
+        )
         val corrected = lastCorrected
         // Tapping the left slot right after an autocorrection undoes it.
         // Two old bugs made undo almost unusable, and both are fixed

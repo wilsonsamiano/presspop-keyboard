@@ -20,15 +20,14 @@ android {
         applicationId = "com.wilson.presspopkeyboard"
         minSdk = 26
         targetSdk = 34
-        // Bumped Oct 29, 2026: installed build is now code 5 /
-        // beta 0.1.4, so the next build must be code 6 to count as an
-        // update (Android and the in-app updater, tag vN =
-        // versionCode, both require a HIGHER code). Grok must build
-        // this exact version, not bump it again locally. This build
-        // is a DEBUG build only: it adds a temporary swipe Toast,
-        // to be removed once swipe is diagnosed.
-        versionCode = 6
-        versionName = "beta 0.1.5"
+        // Bumped Oct 29, 2026: code 6 (always-on swipe Toast) is
+        // superseded before building — this build replaces it with
+        // a general, off-by-default Debug Mode switch in settings,
+        // covering swipe, autocorrect, and suggestion taps, so it
+        // can stay in the app for customer support. Grok must build
+        // this exact version, not bump it again locally.
+        versionCode = 7
+        versionName = "beta 0.1.6"
     }
 
     signingConfigs {

@@ -15,7 +15,6 @@ import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
-import android.widget.Toast
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -632,28 +631,24 @@ class KeyboardView @JvmOverloads constructor(
                 // already dedupes consecutive repeats (h-e-l-o for hello),
                 // and bestSwipeMatch tolerates that one missing letter.
                 val tracedLetters = visitedLetters.toList()
-                // TEMPORARY SWIPE DEBUG, Oct 29, 2026: Wilson reports
-                // the blue trace shows but nothing is picked up, so
-                // every gesture (not every tap) shows a Toast with
-                // exactly what tracing saw — trace, distinct letters,
-                // path length, whether it counted as a swipe, and the
-                // dictionary match. That tells us whether tracing,
-                // the swipe threshold, or matching is the failing
-                // step. Remove this Toast once swipe is diagnosed;
-                // it is not meant to ship.
+                // Swipe debug (DebugMode, off by default): every
+                // gesture (not every tap) shows what tracing saw —
+                // trace, dictionary match, whether it counted as a
+                // swipe, distinct letters, and path length. That
+                // tells us whether tracing, the swipe threshold, or
+                // matching is the failing step.
                 val debugTrace = tracedLetters.joinToString("")
                 val debugPathDp = (pathLength() / resources.displayMetrics.density).roundToInt()
                 val debugMatch = if (debugTrace.isNotEmpty()) {
                     Dictionary.bestSwipeMatch(debugTrace, personalWords)
                 } else null
                 if (debugTrace.isNotEmpty() && debugPathDp > 20) {
-                    Toast.makeText(
+                    DebugMode.toast(
                         context,
                         "Swipe: trace=$debugTrace match=${debugMatch ?: "none"} " +
                             "swipe=$wasSwipe distinct=${tracedLetters.distinct().size} " +
-                            "path=${debugPathDp}dp",
-                        Toast.LENGTH_LONG
-                    ).show()
+                            "path=${debugPathDp}dp"
+                    )
                 }
                 swipePoints.clear()
                 visitedLetters.clear()
