@@ -136,7 +136,27 @@ object Dictionary {
         "take", "taking", "give", "giving", "see", "seeing", "know", "knowing",
         "think", "thought", "feel", "feeling", "want", "wanted", "need",
         "needed", "like", "liked", "love", "loved", "hope", "hoping", "pray",
-        "praying", "bless", "blessed", "amen", "lord", "christ", "faith"
+        "praying", "bless", "blessed", "amen", "lord", "christ", "faith",
+        // Added Oct 29, 2026, from real autocorrect misses while
+        // testing: "menu" was missing, so typing it was "corrected"
+        // to "men" (distance 1) — a correct word changed to a wrong
+        // one. Contractions with an apostrophe were missing entirely,
+        // so "doesnt" could never become "doesn't".
+        "menu", "keyboard", "swipe", "update", "settings", "scroll",
+        "delete", "highlight", "sentence", "button", "backspace",
+        "spacebar", "cursor", "theme", "dark", "light", "language",
+        "english", "tagalog", "spanish", "custom", "word", "words",
+        "personal", "learn", "learned", "app", "apps", "android",
+        "google", "message", "messages", "email", "password",
+        "account", "internet", "wifi", "bluetooth", "battery",
+        "camera", "photo", "photos", "video", "videos",
+        "don't", "doesn't", "can't", "won't", "isn't", "aren't",
+        "wasn't", "weren't", "haven't", "hasn't", "didn't",
+        "couldn't", "shouldn't", "wouldn't", "it's", "that's",
+        "there's", "here's", "what's", "let's", "i'm", "you're",
+        "we're", "they're", "i've", "you've", "we've", "they've",
+        "i'll", "you'll", "he'll", "she'll", "we'll", "they'll",
+        "i'd", "you'd", "he'd", "she'd", "we'd", "they'd"
     ).distinct()
 
     fun isWord(word: String): Boolean = activeWords.contains(word.lowercase())
@@ -218,6 +238,34 @@ object Dictionary {
                 best = cand
             }
         }
-        return if (bestDist <= 2) best else null
+        if (bestDist <= 2) return best
+        // Subsequence fallback, Oct 29, 2026: a swipe trace almost
+        // always crosses extra keys on the way (a straight line from
+        // S to W passes near other keys), so the trace is longer than
+        // the word and edit distance alone misses it. If a dictionary
+        // word appears in order inside the trace, starting on the
+        // first traced letter and ending on the last, that word is
+        // almost certainly the intended one — e.g. "swipe" inside a
+        // noisy "swertyuipe" trace. Longest such word wins.
+        var subBest: String? = null
+        for (cand in extra + activeWords) {
+            if (cand.length < 3 || cand.first() != t.first() ||
+                cand.last() != t.last()
+            ) continue
+            var ti = 0
+            var matched = true
+            for (c in cand) {
+                while (ti < t.length && t[ti] != c) ti++
+                if (ti >= t.length) {
+                    matched = false
+                    break
+                }
+                ti++
+            }
+            if (matched && (subBest == null || cand.length > subBest.length)) {
+                subBest = cand
+            }
+        }
+        return subBest
     }
 }

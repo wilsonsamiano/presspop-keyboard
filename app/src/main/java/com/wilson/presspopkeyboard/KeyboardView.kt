@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.graphics.PointF
 import android.graphics.RectF
 import android.os.Handler
@@ -534,7 +535,17 @@ class KeyboardView @JvmOverloads constructor(
                 if (hit != null && hit.key != pressedKey) {
                     pressedKey = hit.key
                     pressedRect = hit.rect
-                    if (hit.key.action == KeyAction.CHAR && mode == KeyboardMode.LETTERS) {
+                    // Swipe tracing, Oct 29, 2026: only record a letter
+                    // when the finger is actually inside that key's
+                    // rectangle. keyAt() returns the NEAREST key, so
+                    // the old code recorded every key the finger passed
+                    // NEAR — a straight swipe from S to W recorded
+                    // E, R, T, Y, ... on the way, and the trace became
+                    // garbage that no dictionary word could match.
+                    if (hit.key.action == KeyAction.CHAR && mode == KeyboardMode.LETTERS &&
+                        event.x in hit.rect.left..hit.rect.right &&
+                        event.y in hit.rect.top..hit.rect.bottom
+                    ) {
                         val letter = hit.key.output.lowercase()
                         if (visitedLetters.isEmpty() || visitedLetters.last() != letter) {
                             visitedLetters.add(letter)
@@ -593,9 +604,25 @@ class KeyboardView @JvmOverloads constructor(
                 if (wasSwipe) {
                     val traced = tracedLetters.joinToString("")
                     if (traced.isNotEmpty()) {
-                        val match = Dictionary.bestSwipeMatch(traced, personalWords) ?: traced
-                        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        onSwipeWord?.invoke(match)
+                        // Old fallback committed the raw trace when no
+                        // dictionary word matched — that is exactly how
+                        // a swipe produced a long garbage string instead
+                        // of a word. Now: a real match commits, a short
+                        // trace (a plausible unknown word, e.g. a name)
+                        // commits as typed, and a long unmatched trace
+                        // commits nothing at all — garbage is worse
+                        // than nothing, and the user can tap-type it.
+                        // Swipe is also one word at a time: swiping a
+                        // whole phrase traces it as one long word, so
+                        // lift between words and tap Space separately.
+                        val match = Dictionary.bestSwipeMatch(traced, personalWords)
+                        if (match != null) {
+                            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            onSwipeWord?.invoke(match)
+                        } else if (traced.length <= 10) {
+                            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            onSwipeWord?.invoke(traced)
+                        }
                     }
                     return true
                 }
@@ -710,6 +737,15 @@ class KeyboardView @JvmOverloads constructor(
                 key.label.length > 2 -> dp(15f)
                 else -> dp(22f)
             }
+            // The return arrow (⏎) is a thin outline glyph, so in
+            // regular weight it reads much lighter than the letters.
+            // Action keys (enter, shift, delete, mode) are bold, so
+            // their symbols match the letters in visual weight.
+            textPaint.typeface = if (key.action in listOf(
+                    KeyAction.ENTER, KeyAction.SHIFT,
+                    KeyAction.DELETE, KeyAction.MODE
+                )
+            ) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             val y = rect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
             canvas.drawText(key.label, rect.centerX(), y, textPaint)
         }

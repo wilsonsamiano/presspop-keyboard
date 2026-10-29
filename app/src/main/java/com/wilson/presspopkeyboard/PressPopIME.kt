@@ -298,10 +298,7 @@ class PressPopIME : InputMethodService() {
                             }
                         }
                         KeyAction.SPACE -> handleSpace()
-                        KeyAction.DELETE -> {
-                            ic.deleteSurroundingText(1, 0)
-                            updateAutoShift()
-                        }
+                        KeyAction.DELETE -> handleDelete()
                         KeyAction.ENTER -> {
                             commitCurrentWordForLearning()
                             ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
@@ -670,6 +667,32 @@ class PressPopIME : InputMethodService() {
         }
     }
 
+    // Backspace: if text is highlighted, one tap deletes the whole
+    // selection — the old code only ever deleted one character before
+    // the cursor (deleteSurroundingText ignores a selection), so a
+    // highlighted word or sentence survived backspace.
+    private fun handleDelete() {
+        val ic = currentInputConnection ?: return
+        val extracted = try {
+            ic.getExtractedText(
+                android.view.inputmethod.ExtractedTextRequest(), 0
+            )
+        } catch (e: Exception) {
+            null
+        }
+        if (extracted != null && extracted.selectionStart >= 0 &&
+            extracted.selectionEnd > extracted.selectionStart
+        ) {
+            ic.commitText("", 1)
+            keyboardView.setTypedWord("")
+            lastCorrected = null
+            refreshSuggestions("")
+        } else {
+            ic.deleteSurroundingText(1, 0)
+        }
+        updateAutoShift()
+    }
+
     private fun handleSpace() {
         val ic = currentInputConnection ?: return
         val word = keyboardView.typedWord
@@ -757,19 +780,40 @@ class PressPopIME : InputMethodService() {
         if (suggestion.isEmpty()) return
         val corrected = lastCorrected
         // Tapping the left slot right after an autocorrection undoes it.
+        // Two old bugs made undo almost unusable, and both are fixed
+        // here. (1) handleSpace() commits the correction AND a trailing
+        // space, so the cursor sits after the space — deleting only
+        // the correction's length deleted the space plus all but the
+        // first letter of the correction, garbling the word, which is
+        // why undo only worked after backspacing the space first.
+        // Undo now deletes the correction plus its trailing space (if
+        // present) and restores the original word plus that space.
+        // (2) After undo, the next Space re-corrected the restored
+        // word, because nothing remembered the undo. The restored word
+        // is now learned as a personal word, so it is never
+        // autocorrected again — undo is a choice, not a suggestion.
         if (index == 0 && corrected != null && keyboardView.typedWord.isEmpty() &&
             suggestion == corrected.first
         ) {
+            val before = try {
+                ic.getTextBeforeCursor(corrected.second.length + 2, 0)?.toString()
+            } catch (e: Exception) {
+                null
+            }
+            val hasTrailingSpace = before?.endsWith(" ") == true
+            val charsToDrop = corrected.second.length + if (hasTrailingSpace) 1 else 0
             // Capitalize before deleting: the helper reads the text
             // before the cursor, which must still contain the word.
             val restored = capitalizeForSentenceStart(
-                corrected.first, corrected.second.length
+                corrected.first, charsToDrop
             )
-            ic.deleteSurroundingText(corrected.second.length, 0)
-            ic.commitText(restored, 1)
+            ic.deleteSurroundingText(charsToDrop, 0)
+            ic.commitText(restored + if (hasTrailingSpace) " " else "", 1)
+            personal.addManual(corrected.first)
+            keyboardView.personalWords = personal.allPersonalWords()
             lastCorrected = null
-            keyboardView.setTypedWord(corrected.first)
-            refreshSuggestions(corrected.first)
+            keyboardView.setTypedWord("")
+            refreshSuggestions("")
             return
         }
         val word = keyboardView.typedWord
