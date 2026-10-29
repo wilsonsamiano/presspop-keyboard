@@ -340,7 +340,20 @@ class KeyboardView @JvmOverloads constructor(
     private fun layoutKeys() {
         if (width == 0) return
         gap = dp(6f)
-        rowHeight = dp(52f)
+        // Fixed-height keyboard, Oct 29, 2026: the view used to
+        // measure to its current row count, so switching Letters
+        // (5 rows with the number row on) to 123 (4 rows) shrank the
+        // whole keyboard by one row, the app above it jumped, and
+        // the screen felt like it was flickering. Now the view is
+        // always 5 rows tall (see onMeasure) and the rows stretch to
+        // fill it, so a mode switch never resizes the window — keys
+        // just get a little taller in 4-row modes, and the bottom
+        // row never moves.
+        rowHeight = if (height > 0) {
+            (height - gap * (rows.size + 1)) / rows.size
+        } else {
+            dp(52f)
+        }
         val rects = mutableListOf<KeyRect>()
         // Bottom-anchor the rows: if this view is still at its old
         // (taller) height when a mode with fewer rows is drawn, the
@@ -373,8 +386,11 @@ class KeyboardView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        val rowCount = if (rows.isEmpty()) 4 else rows.size
-        val h = (dp(52f) * rowCount + dp(6f) * (rowCount + 1)).roundToInt()
+        // Always 5 rows tall, whatever the current mode has — see
+        // layoutKeys. 5 is the most rows any mode uses (Letters with
+        // the number row, and the number pad), so nothing ever grows
+        // or shrinks when switching modes.
+        val h = (dp(52f) * 5 + dp(6f) * 6).roundToInt()
         setMeasuredDimension(w, h)
     }
 

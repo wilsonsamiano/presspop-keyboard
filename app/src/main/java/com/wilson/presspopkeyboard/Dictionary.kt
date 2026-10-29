@@ -156,7 +156,24 @@ object Dictionary {
         "there's", "here's", "what's", "let's", "i'm", "you're",
         "we're", "they're", "i've", "you've", "we've", "they've",
         "i'll", "you'll", "he'll", "she'll", "we'll", "they'll",
-        "i'd", "you'd", "he'd", "she'd", "we'd", "they'd"
+        "i'd", "you'd", "he'd", "she'd", "we'd", "they'd",
+        // Second expansion, Oct 29, 2026, from a scan for missing
+        // everyday words: "is" and "he" were not in the list at all,
+        // and neither were dozens of other ordinary words, which is
+        // why autocorrect kept guessing at words it should have
+        // known. A word in this list is never "corrected" away, and
+        // it becomes available to suggestions and swipe.
+        "is", "he", "above", "across", "against", "almost", "alone",
+        "already", "although", "among", "amount", "anything",
+        "baby", "bad", "ball", "become", "bed", "began", "behind",
+        "being", "bring", "business", "care", "case", "cause",
+        "center", "certain", "child", "children", "company",
+        "course", "door", "early", "enough", "ever", "face",
+        "fact", "far", "four", "girl", "government", "however",
+        "important", "late", "later", "leave", "lot", "once",
+        "question", "second", "side", "state", "sure", "though",
+        "took", "toward", "upon", "war", "without", "years",
+        "young"
     ).distinct()
 
     fun isWord(word: String): Boolean = activeWords.contains(word.lowercase())
