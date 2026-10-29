@@ -414,7 +414,12 @@ class PressPopIME : InputMethodService() {
         gifMode = false
         gifQuery = ""
         if (::gifPanel.isInitialized) gifPanel.visibility = View.GONE
-        if (::keyboardView.isInitialized) keyboardView.mode = KeyboardMode.LETTERS
+        if (::keyboardView.isInitialized) {
+            keyboardView.mode = KeyboardMode.LETTERS
+            // Letters typed into the GIF search also fed typedWord;
+            // drop them so they do not leak into the next word.
+            keyboardView.setTypedWord("")
+        }
     }
 
     private fun handleGifKey(key: Key) {
@@ -678,7 +683,10 @@ class PressPopIME : InputMethodService() {
                     ic.deleteSurroundingText(word.length, 0)
                     ic.commitText(finalCorrection, 1)
                     lastCorrected = word to finalCorrection
-                    personal.noteTyped(word)
+                    // Do NOT learn the typo as a personal word: a
+                    // corrected typo is not a word the user wants to
+                    // keep, and learning it after two corrections
+                    // would make autocorrect stop correcting it.
                 } else {
                     personal.noteTyped(word)
                 }

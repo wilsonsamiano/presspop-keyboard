@@ -161,6 +161,12 @@ object Dictionary {
         return (personal + common).take(5)
     }
 
+    // Edit distance, counting an adjacent transposition as ONE edit
+    // (optimal string alignment / Damerau-Levenshtein). Plain
+    // Levenshtein counts a transposition as two edits, which made
+    // the classic typo "teh" -> "the" look too far away to correct
+    // (distance 2, limit 1 for short words). With transposition = 1,
+    // "teh" is distance 1 from "the" and corrects correctly.
     fun levenshtein(a: String, b: String): Int {
         val dp = Array(a.length + 1) { IntArray(b.length + 1) }
         for (i in 0..a.length) dp[i][0] = i
@@ -170,6 +176,9 @@ object Dictionary {
                 min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
                 dp[i - 1][j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1
             )
+            if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) {
+                dp[i][j] = min(dp[i][j], dp[i - 2][j - 2] + 1)
+            }
         }
         return dp[a.length][b.length]
     }

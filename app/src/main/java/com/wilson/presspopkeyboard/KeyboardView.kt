@@ -598,12 +598,30 @@ class KeyboardView @JvmOverloads constructor(
                         }
                         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onKey?.invoke(key)
+                        // Punctuation typed from the 123 / #+= pages
+                        // returns to ABC automatically — typing an
+                        // apostrophe in "don't" should not need a
+                        // second tap on ABC. Digits stay put, so a
+                        // multi-digit number is not interrupted, and
+                        // other symbols ($, -, /, etc.) stay too, so
+                        // sequences like $100 or 2026-10 are not broken.
+                        if ((mode == KeyboardMode.NUMBERS || mode == KeyboardMode.SYMBOLS) &&
+                            key.output in setOf("'", "\"", ".", ",", "?", "!", ";", ":")
+                        ) {
+                            mode = KeyboardMode.LETTERS
+                        }
                     }
                     KeyAction.SPACE -> {
-                        typedWord = ""
-                        noteTypedWordChange()
+                        // Autocorrect bug fix: do NOT clear typedWord
+                        // before invoking onKey. PressPopIME's
+                        // handleSpace() reads typedWord to decide the
+                        // correction — clearing it first meant the word
+                        // was always empty there, so autocorrect never
+                        // ran at all. Clear it after, as before.
                         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onKey?.invoke(key)
+                        typedWord = ""
+                        noteTypedWordChange()
                     }
                     KeyAction.DELETE -> {
                         typedWord = typedWord.dropLast(1)
@@ -612,10 +630,13 @@ class KeyboardView @JvmOverloads constructor(
                         onKey?.invoke(key)
                     }
                     KeyAction.ENTER -> {
-                        typedWord = ""
-                        noteTypedWordChange()
+                        // Same reason as Space: PressPopIME learns the
+                        // word on Enter, so it must still be present
+                        // when onKey runs. Clear it after.
                         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onKey?.invoke(key)
+                        typedWord = ""
+                        noteTypedWordChange()
                     }
                 }
                 return true
