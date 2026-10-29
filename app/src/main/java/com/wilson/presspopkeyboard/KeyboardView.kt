@@ -642,10 +642,19 @@ class KeyboardView @JvmOverloads constructor(
                 val debugMatch = if (debugTrace.isNotEmpty()) {
                     Dictionary.bestSwipeMatch(debugTrace, personalWords)
                 } else null
-                if (debugTrace.isNotEmpty() && debugPathDp > 20) {
+                // Show this even when the trace is empty — that is
+                // the whole point of the debug tool. The old version
+                // only showed a popup when a trace existed, so when
+                // tracing failed completely (the exact bug being
+                // chased), the popup never happened at all and the
+                // user saw nothing. An empty trace with a long path
+                // is itself the diagnosis: the finger moved, but no
+                // letters were recorded.
+                if (debugPathDp > 20) {
                     DebugMode.toast(
                         context,
-                        "Swipe: trace=$debugTrace match=${debugMatch ?: "none"} " +
+                        "Swipe: trace=${debugTrace.ifEmpty { "(empty)" }} " +
+                            "match=${debugMatch ?: "none"} " +
                             "swipe=$wasSwipe distinct=${tracedLetters.distinct().size} " +
                             "path=${debugPathDp}dp"
                     )

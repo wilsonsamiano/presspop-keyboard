@@ -26,8 +26,12 @@ android {
         // covering swipe, autocorrect, and suggestion taps, so it
         // can stay in the app for customer support. Grok must build
         // this exact version, not bump it again locally.
-        versionCode = 7
-        versionName = "beta 0.1.6"
+        // Bumped Oct 29, 2026: swipe debug toast was suppressed when
+        // the trace was empty, so it never showed for the exact bug
+        // it was meant to diagnose. Grok must build this exact
+        // version, not bump it again locally.
+        versionCode = 8
+        versionName = "beta 0.1.7"
     }
 
     signingConfigs {
