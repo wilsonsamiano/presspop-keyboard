@@ -161,7 +161,7 @@ class PressPopIME : InputMethodService() {
     private var darkMode = false
     // Auto-capitalization for this field: on for plain text, off for
     // passwords, email addresses, URLs, numbers and phone fields.
-    private var autoCapitalize = false // Wilson, Oct 29, 2026: dont put caps — no sentence-start auto-capitalization. Manual Shift still works for a capital when he wants one.
+    private var autoCapitalize = true // Code 25 correction: auto-capitalization is back on for sentence starts. Code 21 turned it off after Wilson's "Dont put caps", which was read too broadly — that instruction was about contractions, not sentence starts. Contractions stay lowercase via the exemption in capitalizeForSentenceStart below.
 
     // Dark mode is read fresh every time the input view is created
     // or a new field starts — NOT just in onCreate(), where the
@@ -825,6 +825,11 @@ class PressPopIME : InputMethodService() {
     // word being replaced (0 for a swipe word, which is not typed yet).
     private fun capitalizeForSentenceStart(word: String, charsBeforeWord: Int): String {
         if (!autoCapitalize || word.isEmpty()) return word
+        // Code 25: contractions never get a sentence-start
+        // capital, per Wilson's original "Dont put caps" —
+        // dont -> don't, im -> i'm, even at a sentence
+        // start. Normal words still capitalize there.
+        if (word.lowercase() in Dictionary.CONTRACTIONS.values) return word
         val ic = currentInputConnection ?: return word
         val before = try {
             ic.getTextBeforeCursor(charsBeforeWord + 64, 0)?.toString()
@@ -1112,7 +1117,13 @@ class PressPopIME : InputMethodService() {
         // Commit it plus a space, learn the pair, and offer the
         // next next-word at once — otherwise tapping a next
         // word would leave the cursor stuck right after it.
-        if (keyboardView.typedWord.isEmpty() && index != 0 && corrected == null) {
+        // Code 25: a predicted next word ALWAYS adds a
+        // space when tapped, even right after a correction.
+        // The old `corrected == null` condition meant a
+        // next-word tap after an autocorrection fell
+        // through to the completion path, which added no
+        // space — the bug Wilson reported on code 23.
+        if (keyboardView.typedWord.isEmpty() && index != 0) {
             val nextWord = capitalizeForSentenceStart(suggestion, 0)
             ic.commitText(nextWord + " ", 1)
             recordCommittedWord(suggestion)
@@ -1131,14 +1142,25 @@ class PressPopIME : InputMethodService() {
         if (word.isNotEmpty()) {
             ic.deleteSurroundingText(word.length, 0)
         }
-        ic.commitText(finalSuggestion, 1)
+        // Code 25: tapping a predicted / completion word
+        // adds a space after it, as Wilson asked on code
+        // 23. The old code committed the word with no
+        // space and left it as the "typed word", so the
+        // next letter joined onto it. Password fields
+        // are exempt, as with swipe auto-space.
+        val compType = currentInputEditorInfo?.inputType ?: InputType.TYPE_CLASS_TEXT
+        val compVariation = compType and InputType.TYPE_MASK_VARIATION
+        val compIsPassword = compVariation ==
+            InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+            compVariation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        ic.commitText(finalSuggestion + if (compIsPassword) "" else " ", 1)
         if (keyboardView.shiftOn && !keyboardView.shiftLock) {
             keyboardView.shiftOn = false
         }
         recordCommittedWord(expandedSuggestion)
         lastCorrected = null
-        keyboardView.setTypedWord(expandedSuggestion)
-        refreshSuggestions(suggestion)
+        keyboardView.setTypedWord("")
+        refreshSuggestions("")
     }
 
     override fun onStartInputView(
@@ -1151,11 +1173,17 @@ class PressPopIME : InputMethodService() {
         val inputType = info?.inputType ?: InputType.TYPE_CLASS_TEXT
         val fieldClass = inputType and InputType.TYPE_MASK_CLASS
         val variation = inputType and InputType.TYPE_MASK_VARIATION
-        // Auto-capitalization is OFF, Wilson Oct 29, 2026:
-        // "Dont put caps." The field-based auto-cap that used
-        // to run here is replaced by false, so words stay
-        // lowercase unless he taps Shift himself.
-        autoCapitalize = false
+        // Auto-capitalization, code 25: restored for plain
+        // text fields, after the code 21 over-read of
+        // "Dont put caps". Password / email / URI / filter
+        // fields still never auto-capitalize.
+        autoCapitalize = fieldClass == InputType.TYPE_CLASS_TEXT &&
+            variation != InputType.TYPE_TEXT_VARIATION_PASSWORD &&
+            variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD &&
+            variation != InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS &&
+            variation != InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS &&
+            variation != InputType.TYPE_TEXT_VARIATION_URI &&
+            variation != InputType.TYPE_TEXT_VARIATION_FILTER
         if (::keyboardView.isInitialized) {
             // Auto numpad, Oct 29, 2026 (Wilson): a PIN / number /
             // phone field used to open the full letter keyboard

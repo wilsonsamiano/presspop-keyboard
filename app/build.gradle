@@ -125,8 +125,8 @@ android {
         // (password fields exempt), so a typo like
         // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
-        versionCode = 24
-        versionName = "beta 0.1.23"
+        versionCode = 25
+        versionName = "beta 0.1.24"
     }
 
     signingConfigs {
@@ -189,3 +189,14 @@ dependencies {
 // uppercase letter — SFC stays SFC, Guinard stays
 // Guinard — instead of flipping to sec / guitar.
 // Contraction expansion is NOT guarded.
+
+// Code 25, Oct 29, 2026 (Wilson, on code 23):
+// (1) All military ranks added to the dictionary.
+// (2) Sentence-start auto-capitalization restored,
+// with contractions exempt (dont -> don't, even at
+// sentence start). Code 21 had over-read "Dont put
+// caps" as turning auto-caps off entirely.
+// (3) Tapping a predicted / completion word now adds
+// a trailing space (next-word and completion taps;
+// password fields exempt). Old next-word tap only
+// added a space when no correction had just happened.

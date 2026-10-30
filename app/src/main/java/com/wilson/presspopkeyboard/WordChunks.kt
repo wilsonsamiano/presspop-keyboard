@@ -2072,5 +2072,9 @@ object WordChunk10 {
         "they'll", "they're", "they've", "thirst", "thirsty", "tore", "tremble", "unfold", "wakes", "wasn't",
         "we'd", "we'll", "we're", "we've", "weep", "weren't", "what's", "woken", "won't", "wouldn't",
         "you'd", "you'll", "you're", "you've", "defeats", "he's", "she's",
+        "corporal", "ssg", "sfc", "pv2", "1sg", "sgm", "csm",
+        "wo1", "cw2", "cw3", "cw4", "cw5", "2lt", "1lt", "ltc", "ltg",
+        "ensign", "midshipman", "seaman", "airman", "gunnery", "lance",
+        "specialist", "brigadier", "commodore",
     )
 }
