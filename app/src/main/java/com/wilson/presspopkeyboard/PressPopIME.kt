@@ -84,6 +84,7 @@ class PressPopIME : InputMethodService() {
     // Record a committed word and learn the pair it forms
     // with the previous committed word, on-device only.
     private fun recordCommittedWord(word: String) {
+        if (isPasswordField()) return
         val w = word.lowercase().trim()
         if (w.isEmpty()) return
         if (lastCommittedWord.isNotEmpty()) {
@@ -111,6 +112,7 @@ class PressPopIME : InputMethodService() {
     // ". ", "? ", "! "), because a bigram from the previous
     // sentence must not predict the first word of the next.
     private fun lastTwoWordsBeforeCursor(): Pair<String, String> {
+        if (isPasswordField()) return "" to ""
         val ic = currentInputConnection
         if (ic != null) {
             try {
@@ -140,6 +142,7 @@ class PressPopIME : InputMethodService() {
     // n-gram model (code 23). Same sentence-start
     // guard as lastTwoWordsBeforeCursor.
     private fun lastWordsBeforeCursor(): List<String> {
+        if (isPasswordField()) return emptyList()
         val ic = currentInputConnection
         if (ic != null) {
             try {
@@ -161,6 +164,36 @@ class PressPopIME : InputMethodService() {
     private var darkMode = false
     // Auto-capitalization for this field: on for plain text, off for
     // passwords, email addresses, URLs, numbers and phone fields.
+    // Password-field safety, code 26 (Wilson: "Just make
+    // password fields safer, no learning or suggestions
+    // there"). A password field is: text password,
+    // visible password, web password, number password,
+    // or any field with FLAG_NO_SUGGESTIONS. In such a
+    // field PressPop must not learn, suggest, correct,
+    // predict, or debug-log anything — a password typed
+    // there must leave no trace in the personal
+    // dictionary, learned pairs, next-word history, or
+    // suggestion strip. This helper is checked at every
+    // learning / suggestion / correction entry point
+    // below, not just at one of them, because those
+    // paths are called from many places.
+    private fun isPasswordField(): Boolean {
+        val info = currentInputEditorInfo ?: return false
+        val inputType = info.inputType
+        val fieldClass = inputType and InputType.TYPE_MASK_CLASS
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        if (inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0) return true
+        return when (fieldClass) {
+            InputType.TYPE_CLASS_TEXT -> variation ==
+                InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+            InputType.TYPE_CLASS_NUMBER -> variation ==
+                InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+    }
+
     private var autoCapitalize = true // Code 25 correction: auto-capitalization is back on for sentence starts. Code 21 turned it off after Wilson's "Dont put caps", which was read too broadly — that instruction was about contractions, not sentence starts. Contractions stay lowercase via the exemption in capitalizeForSentenceStart below.
 
     // Dark mode is read fresh every time the input view is created
@@ -496,7 +529,7 @@ class PressPopIME : InputMethodService() {
                 keyboardView.shiftOn = false
             }
             recordCommittedWord(swipedWord)
-            personal.noteTyped(swipedWord)
+            if (!isPasswordField()) personal.noteTyped(swipedWord)
             keyboardView.personalWords = personal.allPersonalWords()
             keyboardView.setTypedWord("")
             refreshSuggestions("")
@@ -875,6 +908,7 @@ class PressPopIME : InputMethodService() {
     // as a personal word so it is never re-corrected.
     // A second Delete then deletes normally.
     private fun tryUndoLastCorrection(): Boolean {
+        if (isPasswordField()) return false
         val corrected = lastCorrected ?: return false
         if (keyboardView.typedWord.isNotEmpty()) return false
         val ic = currentInputConnection ?: return false
@@ -938,6 +972,17 @@ class PressPopIME : InputMethodService() {
         lastSpaceTap = now
         var committedWordThisSpace: String? = null
 
+        // Code 26: in a password field, Space is just a
+        // space. No contraction, rank casing, or
+        // autocorrection — correcting a password would
+        // corrupt it, and learning it would store it.
+        if (isPasswordField()) {
+            ic.commitText(" ", 1)
+            keyboardView.setTypedWord("")
+            refreshSuggestions("")
+            updateAutoShift()
+            return
+        }
         if (word.isNotEmpty()) {
             // Contraction expansion, code 21, checked BEFORE
             // the isWord check: "dont" IS a dictionary word,
@@ -1014,6 +1059,7 @@ class PressPopIME : InputMethodService() {
     }
 
     private fun commitCurrentWordForLearning() {
+        if (isPasswordField()) return
         val word = keyboardView.typedWord
         if (word.isNotEmpty()) {
             personal.noteTyped(word)
@@ -1028,6 +1074,10 @@ class PressPopIME : InputMethodService() {
     // banner as swipe readouts. Falls back to a Toast only if the
     // keyboard view is not ready yet.
     private fun showDebug(message: String) {
+        // Code 26: no debug recording at all in a password
+        // field — a swipe debug line names the traced
+        // letters, which would be the password itself.
+        if (isPasswordField()) return
         // No popup anywhere while typing, Oct 29, 2026 (Wilson):
         // the line is only recorded for the app's Copy button.
         if (::keyboardView.isInitialized) {
@@ -1039,6 +1089,14 @@ class PressPopIME : InputMethodService() {
 
     private fun refreshSuggestions(word: String) {
         if (!::strip.isInitialized) return
+        if (isPasswordField()) {
+            // Code 26: no suggestions at all in a password
+            // field — no completions, no next-word
+            // predictions, no undo left slot either, since
+            // that slot would show a word from the field.
+            suggestionViews.forEach { it.text = "" }
+            return
+        }
         val personalWords = personal.allPersonalWords()
         // Next-word prediction, code 20: when no word is being
         // typed (right after a Space or a swiped word), the
@@ -1086,6 +1144,7 @@ class PressPopIME : InputMethodService() {
     }
 
     private fun onSuggestionTapped(index: Int) {
+        if (isPasswordField()) return
         val ic = currentInputConnection ?: return
         val view = suggestionViews.getOrNull(index) ?: return
         val suggestion = view.text.toString()
@@ -1215,6 +1274,7 @@ class PressPopIME : InputMethodService() {
             variation != InputType.TYPE_TEXT_VARIATION_URI &&
             variation != InputType.TYPE_TEXT_VARIATION_FILTER
         if (::keyboardView.isInitialized) {
+            keyboardView.suppressDebug = isPasswordField()
             // Auto numpad, Oct 29, 2026 (Wilson): a PIN / number /
             // phone field used to open the full letter keyboard
             // every time, because this always forced LETTERS here.

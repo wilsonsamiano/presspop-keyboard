@@ -127,6 +127,12 @@ class KeyboardView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** Code 26: set by PressPopIME on every new field.
+     * When true, no debug line is recorded at all, so a
+     * swipe trace in a password field can never name
+     * the password in the Copy-debug readout. */
+    var suppressDebug: Boolean = false
+
     fun showDebug(message: String) {
         // Popup REMOVED Oct 29, 2026 (Wilson): the banner was in
         // the way while typing, and the "Copy last debug line"
@@ -134,6 +140,7 @@ class KeyboardView @JvmOverloads constructor(
         // on-screen popup is needed at all. This just records the
         // line for that button, and shows nothing. debugLine stays
         // null, so layoutKeys() never shifts the keys for a banner.
+        if (suppressDebug) return
         if (!DebugMode.isOn(context)) return
         DebugMode.record(message)
     }
