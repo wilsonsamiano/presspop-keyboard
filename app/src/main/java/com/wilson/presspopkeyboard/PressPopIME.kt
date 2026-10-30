@@ -873,7 +873,25 @@ class PressPopIME : InputMethodService() {
             variation != InputType.TYPE_TEXT_VARIATION_URI &&
             variation != InputType.TYPE_TEXT_VARIATION_FILTER
         if (::keyboardView.isInitialized) {
-            keyboardView.mode = KeyboardMode.LETTERS
+            // Auto numpad, Oct 29, 2026 (Wilson): a PIN / number /
+            // phone field used to open the full letter keyboard
+            // every time, because this always forced LETTERS here.
+            // Gboard opens its numpad for these fields, so PressPop
+            // now does the same: number and phone fields start on
+            // the numpad, everything else starts on letters. The
+            // numpad still has 123 and ABC keys, so a number field
+            // that needs a symbol or a letter is one tap away, and
+            // the numpad's period key covers decimal amounts.
+            // (A PIN field declared as a text password, rather than
+            // a number password, still opens letters — Android
+            // gives the keyboard no way to tell that one is digits
+            // only, so guessing numpad there would break real
+            // alphanumeric passwords.)
+            keyboardView.mode = when (fieldClass) {
+                InputType.TYPE_CLASS_NUMBER,
+                InputType.TYPE_CLASS_PHONE -> KeyboardMode.NUMPAD
+                else -> KeyboardMode.LETTERS
+            }
             keyboardView.shiftOn = false
             keyboardView.shiftLock = false
             keyboardView.setTypedWord("")
