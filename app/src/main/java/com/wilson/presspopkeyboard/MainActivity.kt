@@ -119,6 +119,58 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
+
+        // Code 37 offline voice: System = the device's
+        // speech service (existing behaviour, may send
+        // audio to that service); Offline = sherpa-onnx
+        // Whisper tiny on this device only, after the
+        // model is downloaded below. The keyboard reads
+        // voice_mode each time the mic is tapped, and
+        // in Offline mode it never falls back silently
+        // to the system recognizer if the model is
+        // missing — see PressPopIME.handleVoice().
+        val voiceModeButton = findViewById<Button>(R.id.voiceModeButton)
+        fun refreshVoiceModeLabel() {
+            val offline = settings.getString("voice_mode", "system") == "offline"
+            voiceModeButton.text = if (offline) {
+                "Voice mode: Offline (tap for System)"
+            } else {
+                "Voice mode: System (tap for Offline)"
+            }
+        }
+        refreshVoiceModeLabel()
+        voiceModeButton.setOnClickListener {
+            val offline = settings.getString("voice_mode", "system") != "offline"
+            settings.edit().putString("voice_mode", if (offline) "offline" else "system").apply()
+            refreshVoiceModeLabel()
+            Toast.makeText(
+                this,
+                if (offline) "Offline voice on — download the model below if you have not yet."
+                else "System voice on.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        findViewById<Button>(R.id.downloadVoiceModelButton).setOnClickListener {
+            if (OfflineVoiceModel.isDownloaded(this)) {
+                Toast.makeText(this, "Offline voice model is already downloaded.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            Toast.makeText(
+                this,
+                "Downloading offline voice model… one time only, about 120–150 MB. Keep this screen open.",
+                Toast.LENGTH_LONG
+            ).show()
+            Thread {
+                val error = OfflineVoiceModel.download(this) { }
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        error ?: "Offline voice model downloaded. Switch Voice mode to Offline to use it.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }.start()
+        }
         val numberRowButton = findViewById<Button>(R.id.numberRowButton)
         fun refreshNumberRowLabel() {
             val on = settings.getBoolean("number_row", false)
@@ -352,6 +404,38 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
+        // Code 37 (Wilson, Oct 30, 2026): Incognito /
+        // "don't learn this" toggle. While on,
+        // PersonalDictionary.noteTyped/notePair
+        // return early and clipboard history is
+        // not saved (see PressPopIME). Takes
+        // effect the next time the keyboard
+        // opens; nothing already learned is
+        // deleted by turning it on.
+        val incognitoButton = findViewById<Button>(R.id.incognitoButton)
+        fun refreshIncognitoLabel() {
+            val on = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+                .getBoolean("incognito", false)
+            incognitoButton.text = if (on) {
+                "Incognito (don't learn): On (tap to turn off)"
+            } else {
+                "Incognito (don't learn): Off (tap to turn on)"
+            }
+        }
+        refreshIncognitoLabel()
+        incognitoButton.setOnClickListener {
+            val prefs = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+            val on = !prefs.getBoolean("incognito", false)
+            prefs.edit().putBoolean("incognito", on).apply()
+            refreshIncognitoLabel()
+            Toast.makeText(
+                this,
+                if (on) "Incognito on: typing will not be learned."
+                else "Incognito off: typing will be learned again.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
         val wordsText = findViewById<TextView>(R.id.wordsText)
         val wordInput = findViewById<EditText>(R.id.wordInput)
         // Code 36 (Wilson, Oct 30, 2026):
@@ -443,6 +527,60 @@ class MainActivity : AppCompatActivity() {
                     this, arrayOf(Manifest.permission.READ_CONTACTS), 2
                 )
             }
+        }
+
+        // Code 37 (Wilson, Oct 30, 2026): back up
+        // and export My Words. Export writes one
+        // JSON backup (manual words, learned counts,
+        // learned word pairs — nothing else) to the
+        // app cache and opens the system share sheet,
+        // so the user saves it where they choose:
+        // Drive, Files, email. The existing
+        // FileProvider cache-path covers that file,
+        // so no new permission is needed. Import
+        // reads a backup back in and MERGES it —
+        // see PersonalDictionary.importJson — so
+        // restoring never wipes newer words.
+        // This is what protects a reinstall or a
+        // new device: without it, the personal
+        // dictionary lived only in this app's
+        // private storage and was lost on uninstall.
+        findViewById<Button>(R.id.exportBackupButton).setOnClickListener {
+            try {
+                val file = java.io.File(cacheDir, "safepop-backup.json")
+                file.writeText(personal.exportJson())
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, "$packageName.fileprovider", file
+                )
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "SafePop backup")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(intent, "Back up My Words"))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Backup failed. Try again.", Toast.LENGTH_LONG).show()
+            }
+        }
+        val backupLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            try {
+                val text = contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: ""
+                val changed = personal.importJson(text)
+                refreshWords()
+                Toast.makeText(
+                    this,
+                    if (changed > 0) "Restored $changed words and word pairs. The keyboard picks them up next time it opens."
+                    else "Backup read, but nothing new to restore.",
+                    Toast.LENGTH_LONG
+                ).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "That file is not a SafePop backup.", Toast.LENGTH_LONG).show()
+            }
+        }
+        findViewById<Button>(R.id.importBackupButton).setOnClickListener {
+            backupLauncher.launch("*/*")
         }
     }
 

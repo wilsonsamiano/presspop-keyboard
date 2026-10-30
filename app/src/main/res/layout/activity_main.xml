@@ -68,6 +68,18 @@
         android:text="Allow microphone for voice typing" />
 
     <Button
+        android:id="@+id/voiceModeButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Voice mode: System (tap for Offline)" />
+
+    <Button
+        android:id="@+id/downloadVoiceModelButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Download offline voice model" />
+
+    <Button
         android:id="@+id/numberRowButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -146,6 +158,19 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="Import names from contacts" />
+
+    <Button
+        android:id="@+id/exportBackupButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Back up My Words (export)" />
+
+    <Button
+        android:id="@+id/importBackupButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Restore My Words (import backup)" />
 
     <Button
         android:id="@+id/autoUpdateButton"
@@ -260,6 +285,17 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Key sounds: On (tap to turn off)" />
+
+    <Button
+        android:id="@+id/incognitoButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Incognito (don't learn): Off (tap to turn on)" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="While Incognito is on, typed words and word pairs are not learned, and clipboard history is not saved. Words you add by hand in My Words still work, and words already learned still show in suggestions." />
 
     </LinearLayout>
 </ScrollView>

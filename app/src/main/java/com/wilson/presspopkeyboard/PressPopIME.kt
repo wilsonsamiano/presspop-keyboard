@@ -74,6 +74,7 @@ class PressPopIME : InputMethodService() {
     private lateinit var personal: PersonalDictionary
     private lateinit var clipboard: ClipboardHistory
     private lateinit var voice: VoiceInput
+    private lateinit var offlineVoice: OfflineVoice
     private lateinit var suggestionViews: List<TextView>
     private lateinit var strip: LinearLayout
     // Suggestion-tap popup, code 29: the one live
@@ -319,8 +320,32 @@ class PressPopIME : InputMethodService() {
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             }
         )
+        // Code 37 offline voice: same result/error handling
+        // as the system recognizer, so the committed text
+        // behaves identically whichever mode is selected.
+        offlineVoice = OfflineVoice(
+            this,
+            onResult = { text ->
+                val ic = currentInputConnection
+                ic?.commitText("$text ", 1)
+                if (::keyboardView.isInitialized) {
+                    keyboardView.setTypedWord("")
+                    refreshSuggestions("")
+                }
+                updateAutoShift()
+            },
+            onError = { message ->
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            }
+        )
         val clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboardManager.addPrimaryClipChangedListener {
+            // Code 37 Incognito: clipboard history is
+            // also learning, so it is not saved
+            // while Incognito is on.
+            val incognito = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+                .getBoolean("incognito", false)
+            if (incognito) return@addPrimaryClipChangedListener
             val clip = clipboardManager.primaryClip
             if (clip != null && clip.itemCount > 0) {
                 val text = clip.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
@@ -1047,6 +1072,43 @@ class PressPopIME : InputMethodService() {
     }
 
     private fun handleVoice() {
+        // Code 37 offline voice mode: "offline" in
+        // presspop_settings voice_mode. If the model is
+        // not downloaded, say so and do NOT fall back
+        // silently to the system recognizer — that would
+        // send audio to a cloud service the user just
+        // opted out of. Tapping the mic a second time
+        // finishes an offline recording and transcribes
+        // it; tapping again in system mode stops it.
+        val offlineMode = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+            .getString("voice_mode", "system") == "offline"
+        if (offlineMode) {
+            if (offlineVoice.listening) {
+                offlineVoice.stop()
+                return
+            }
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                Toast.makeText(
+                    this,
+                    "Allow microphone in the SafePop app first, then tap the mic again.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+            if (!offlineVoice.isAvailable()) {
+                Toast.makeText(
+                    this,
+                    "Download the offline voice model in the SafePop app first, then tap the mic again.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+            if (::strip.isInitialized) suggestionViews.getOrNull(0)?.text = "Listening…"
+            offlineVoice.start()
+            return
+        }
         if (voice.listening) {
             voice.stop()
             return

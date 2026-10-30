@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Code 37 (Wilson, Oct 30, 2026): SafePop app icon background (flag blue, code 37 locked eagle design). -->
+    <color name="ic_launcher_background">#0B3D91</color>
+</resources>

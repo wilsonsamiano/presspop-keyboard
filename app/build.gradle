@@ -174,6 +174,30 @@ dependencies {
     // onCreateInlineSuggestionsRequest). Without it the
     // system renderer refuses to draw an autofill chip.
     implementation("androidx.autofill:autofill:1.1.0")
+    // Code 37 offline voice (GROK — READ FIRST):
+    // Before building, place the sherpa-onnx Android AAR
+    // in app/libs/ as sherpa-onnx.aar — static-link-
+    // onnxruntime variant, v1.12.17 or newer, from a
+    // sherpa-onnx release. Do NOT commit the AAR's
+    // source or the voice model files to the repo.
+    // There is NO verified Maven Central coordinate
+    // for this AAR, and reported JitPack coordinates
+    // conflict (com.github.k2-fsa:sherpa-onnx:v1.10.42
+    // vs sherpa-onnx-android:1.10.0), so do not swap
+    // in an unverified coordinate to work around a
+    // missing AAR — download the release AAR instead.
+    // The Whisper model files (~120-150 MB) must NOT
+    // be bundled in the repo or APK either; the user
+    // downloads them once from inside the app
+    // (see OfflineVoiceModel.kt). If app/libs/
+    // sherpa-onnx.aar is missing, this build fails
+    // on the com.k2fsa.sherpa.onnx imports in
+    // OfflineVoice.kt — that failure means the AAR
+    // was not placed, not that the code is wrong.
+    // Also verify OfflineStream.acceptWaveform's
+    // argument order in OfflineStream.kt inside the
+    // AAR (see the GROK comment in OfflineVoice.kt).
+    implementation(files("libs/sherpa-onnx.aar"))
 }
 
 // Code 22, Oct 29, 2026 (Wilson): learned next-word pairs
