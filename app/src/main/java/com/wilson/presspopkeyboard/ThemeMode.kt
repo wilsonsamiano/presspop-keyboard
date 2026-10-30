@@ -1,5 +1,6 @@
 package com.wilson.presspopkeyboard
 
+import android.app.UiModeManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
@@ -52,9 +53,40 @@ object ThemeMode {
         return when (current(settings)) {
             "dark" -> true
             "light" -> false
-            else -> (context.resources.configuration.uiMode and
-                Configuration.UI_MODE_NIGHT_MASK) ==
-                Configuration.UI_MODE_NIGHT_YES
+            else -> {
+                // Code 34 (Wilson, Oct 30, 2026):
+                // System mode was stuck dark on his
+                // tablet even with the device on light
+                // mode. The old check read the service
+                // context's resources configuration,
+                // which AppCompat's earlier Dark
+                // delegate setting can leave stuck
+                // in night mode for the whole app
+                // process, even after the Theme button
+                // is switched to System. Ask the
+                // system directly instead: UiModeManager
+                // reports the device's own night mode,
+                // independent of AppCompat. AUTO falls
+                // back to the resources check, since
+                // AUTO means the system itself decides
+                // by time / configuration.
+                try {
+                    val uiModeManager = context.getSystemService(
+                        Context.UI_MODE_SERVICE
+                    ) as? UiModeManager
+                    when (uiModeManager?.nightMode) {
+                        UiModeManager.MODE_NIGHT_YES -> true
+                        UiModeManager.MODE_NIGHT_NO -> false
+                        else -> (context.resources.configuration.uiMode and
+                            Configuration.UI_MODE_NIGHT_MASK) ==
+                            Configuration.UI_MODE_NIGHT_YES
+                    }
+                } catch (e: Exception) {
+                    (context.resources.configuration.uiMode and
+                        Configuration.UI_MODE_NIGHT_MASK) ==
+                        Configuration.UI_MODE_NIGHT_YES
+                }
+            }
         }
     }
 

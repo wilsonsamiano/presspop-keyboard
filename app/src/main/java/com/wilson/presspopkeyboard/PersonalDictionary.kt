@@ -35,6 +35,30 @@ class PersonalDictionary(context: Context) {
         prefs.edit().putStringSet("manual", set).apply()
     }
 
+    // Code 34 (Wilson, Oct 30, 2026): "thr" is
+    // NOT in the built-in dictionary, yet it was
+    // treated as a word — because a word typed
+    // twice is learned as a personal word, and
+    // the old Remove button only removed MANUAL
+    // words, so a learned typo could never be
+    // unlearned from the app. This removes both:
+    // the manual entry and the learned count
+    // entry, so the word stops being personal,
+    // stops being suggested / swiped, and can be
+    // autocorrected again. Callers should use
+    // this, not removeManual, for the Remove button.
+    fun removeWord(word: String) {
+        val w = word.trim().lowercase()
+        if (w.isEmpty()) return
+        removeManual(w)
+        val counts = (prefs.getStringSet("counts", emptySet()) ?: emptySet()).toMutableSet()
+        val old = counts.firstOrNull { it.startsWith("$w:") }
+        if (old != null) {
+            counts.remove(old)
+            prefs.edit().putStringSet("counts", counts).apply()
+        }
+    }
+
     /** Words learned from typing (count >= 2). */
     fun learnedWords(): Set<String> {
         val counts = prefs.getStringSet("counts", emptySet()) ?: emptySet()

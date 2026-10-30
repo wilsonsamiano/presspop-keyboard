@@ -2,6 +2,7 @@ package com.wilson.presspopkeyboard
 
 import android.Manifest
 import android.content.ClipboardManager
+import android.content.res.Configuration
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -258,6 +259,12 @@ class PressPopIME : InputMethodService() {
         darkMode = ThemeMode.isDark(this, settings)
         if (::keyboardView.isInitialized) {
             keyboardView.darkMode = darkMode
+            // Code 34: redraw the keys at once.
+            // Setting darkMode alone did not
+            // repaint the canvas until the next
+            // touch, so a theme flip could look
+            // stuck even when the value had changed.
+            keyboardView.invalidate()
             // Key pop sounds, on by default ("key_sounds", app toggle).
             keyboardView.keySoundsOn = settings.getBoolean("key_sounds", true)
         }
@@ -541,6 +548,26 @@ class PressPopIME : InputMethodService() {
                             // the quotes, no spaces inside.
                             // If there is no space before the
                             // cursor, just commit the mark.
+                            // Code 35 (Wilson, Oct 30, 2026):
+                            // "If I'm adding a quotation mark,
+                            // it should check if I'm trying to
+                            // start one first so it won't
+                            // attach itself to the word before
+                            // it." So an OPENING quote typed
+                            // right after a word, with no space
+                            // at all, must NOT attach to that
+                            // word — insert a space first.
+                            // Opening vs closing is decided by
+                            // quote parity in the text before
+                            // the cursor: an even count of "
+                            // before the cursor means no open
+                            // quote is waiting to be closed,
+                            // so this one is opening; an odd
+                            // count means it is closing. This
+                            // rule is for " only — ' is left
+                            // out, because a ' right after a
+                            // word is usually a contraction
+                            // ("don't"), which must attach.
                             // Code 34, single quote: same
                             // opening / closing rule as the
                             // double quote, plus contractions.
@@ -569,15 +596,31 @@ class PressPopIME : InputMethodService() {
                             }
                             if (key.output == "\"" && !isPasswordField()) {
                                 try {
-                                    val before2 = ic.getTextBeforeCursor(2, 0)?.toString() ?: ""
-                                    if (before2.endsWith(" ")) {
-                                        val beforeSpace = before2.dropLast(1)
+                                    val before = ic.getTextBeforeCursor(1000, 0)?.toString() ?: ""
+                                    if (before.endsWith(" ")) {
+                                        val beforeSpace = before.dropLast(1)
                                         val isOpening = beforeSpace.isEmpty() ||
                                             beforeSpace.last().isWhitespace() ||
                                             beforeSpace.last() in "([{"
                                         if (!isOpening) {
                                             ic.deleteSurroundingText(1, 0)
                                         }
+                                    } else if (before.isNotEmpty() &&
+                                        (before.last().isLetterOrDigit() ||
+                                            before.last() in ".,!?:;)]}")
+                                    ) {
+                                        val quoteCount = before.count { it == '"' }
+                                        if (quoteCount % 2 == 0) {
+                                            // Opening quote, no
+                                            // space before it yet:
+                                            // insert one so it
+                                            // does not attach to
+                                            // the word before it.
+                                            ic.commitText(" ", 1)
+                                        }
+                                        // Odd count = closing
+                                        // quote: attach to the
+                                        // word, commit as-is.
                                     }
                                 } catch (e: Exception) {
                                     // As above: never break
@@ -1676,6 +1719,18 @@ class PressPopIME : InputMethodService() {
         // Never leave one field's autofill suggestions
         // showing in the next field/app.
         clearAutofillRow()
+    }
+
+    // Code 34: when the device theme changes
+    // while the keyboard is alive (e.g. the
+    // tablet flips light/dark in quick settings),
+    // re-read the theme and repaint at once —
+    // do not wait for a new field to start.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::keyboardView.isInitialized) {
+            refreshDarkMode()
+        }
     }
 
     override fun onStartInputView(

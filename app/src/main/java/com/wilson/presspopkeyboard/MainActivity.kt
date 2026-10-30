@@ -372,7 +372,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.removeWordButton).setOnClickListener {
             val word = wordInput.text.toString()
             if (word.isBlank()) return@setOnClickListener
-            personal.removeManual(word)
+            // Code 34: removeWord, not removeManual —
+            // otherwise a LEARNED word (like "thr",
+            // learned from typing it twice) could
+            // never be removed from the app.
+            personal.removeWord(word)
             wordInput.text.clear()
             refreshWords()
             Toast.makeText(this, "Removed from My Words.", Toast.LENGTH_SHORT).show()
