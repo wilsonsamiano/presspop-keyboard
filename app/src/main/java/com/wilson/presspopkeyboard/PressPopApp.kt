@@ -21,11 +21,13 @@ import androidx.appcompat.app.AppCompatDelegate
 class PressPopApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        val dark = getSharedPreferences("presspop_settings", MODE_PRIVATE)
-            .getBoolean("dark_mode", false)
+        val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+        // Code 30 2nd commit: three modes now, via
+        // ThemeMode — Light, Dark, or System (follow
+        // the phone). Old dark_mode boolean is only a
+        // fallback inside ThemeMode.current().
         AppCompatDelegate.setDefaultNightMode(
-            if (dark) AppCompatDelegate.MODE_NIGHT_YES
-            else AppCompatDelegate.MODE_NIGHT_NO
+            ThemeMode.nightMode(ThemeMode.current(settings))
         )
     }
 }

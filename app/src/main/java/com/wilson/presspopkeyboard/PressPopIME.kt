@@ -252,7 +252,10 @@ class PressPopIME : InputMethodService() {
     // toggling Dark in the app appeared to do nothing.
     private fun refreshDarkMode() {
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
-        darkMode = settings.getBoolean("dark_mode", false)
+        // Code 30 2nd commit: theme is Light, Dark, or
+        // System (follow the phone), resolved here so
+        // the keyboard and the app screen agree.
+        darkMode = ThemeMode.isDark(this, settings)
         if (::keyboardView.isInitialized) {
             keyboardView.darkMode = darkMode
             // Key pop sounds, on by default ("key_sounds", app toggle).
@@ -275,7 +278,7 @@ class PressPopIME : InputMethodService() {
         personal = PersonalDictionary(this)
         clipboard = ClipboardHistory(this)
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
-        darkMode = settings.getBoolean("dark_mode", false)
+        darkMode = ThemeMode.isDark(this, settings)
         ErrorReporter.install(this)
         // Restore a custom language pack, if one was installed.
         run {

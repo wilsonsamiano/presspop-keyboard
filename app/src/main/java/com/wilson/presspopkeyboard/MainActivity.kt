@@ -65,14 +65,26 @@ class MainActivity : AppCompatActivity() {
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         val themeButton = findViewById<Button>(R.id.themeButton)
         fun refreshThemeLabel() {
-            val dark = settings.getBoolean("dark_mode", false)
-            themeButton.text = if (dark) "Theme: Dark (tap for Light)" else "Theme: Light (tap for Dark)"
+            val mode = ThemeMode.current(settings)
+            themeButton.text =
+                "Theme: ${ThemeMode.label(mode)} (tap for ${ThemeMode.label(ThemeMode.next(mode))})"
         }
         refreshThemeLabel()
         themeButton.setOnClickListener {
-            val dark = !settings.getBoolean("dark_mode", false)
-            settings.edit().putBoolean("dark_mode", dark).apply()
-            // Code 30: the same Dark setting already drove
+            // Code 30 2nd commit: three modes now, in
+            // order Light -> Dark -> System -> Light.
+            // System means follow the phone's own dark
+            // mode, for both this screen and the
+            // keyboard. The old dark_mode boolean is
+            // kept in step as a fallback for older
+            // versions, but theme_mode is what the
+            // app and keyboard actually read.
+            val mode = ThemeMode.next(ThemeMode.current(settings))
+            settings.edit()
+                .putString("theme_mode", mode)
+                .putBoolean("dark_mode", mode == "dark")
+                .apply()
+            // Code 30: the same setting already drove
             // the keyboard, but this screen stayed Light
             // because the manifest theme was hardcoded
             // Light. Now the app theme is DayNight and
@@ -81,15 +93,11 @@ class MainActivity : AppCompatActivity() {
             // no need to close and reopen the app.
             // The keyboard itself still picks the new
             // theme up next time it opens.
-            AppCompatDelegate.setDefaultNightMode(
-                if (dark) AppCompatDelegate.MODE_NIGHT_YES
-                else AppCompatDelegate.MODE_NIGHT_NO
-            )
+            AppCompatDelegate.setDefaultNightMode(ThemeMode.nightMode(mode))
             refreshThemeLabel()
             Toast.makeText(
                 this,
-                if (dark) "Dark theme on. The keyboard picks it up next time it opens."
-                else "Light theme on. The keyboard picks it up next time it opens.",
+                "Theme: ${ThemeMode.label(mode)}. The keyboard picks it up next time it opens.",
                 Toast.LENGTH_SHORT
             ).show()
             recreate()
