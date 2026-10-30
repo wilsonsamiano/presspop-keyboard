@@ -10,7 +10,7 @@ import androidx.appcompat.app.AppCompatDelegate
  * "add system theme also"): three modes, not two.
  * - "light": always light.
  * - "dark": always dark.
- * - "system": follow the phone's own dark mode.
+ * - "system": follow the device's own dark mode.
  * Stored as a string, "theme_mode", in
  * "presspop_settings". The old boolean "dark_mode"
  * is still honoured as a fallback for anyone
@@ -20,14 +20,14 @@ import androidx.appcompat.app.AppCompatDelegate
  * boolean can never override a System choice.
  * The keyboard and the app screen both resolve
  * through here, so they can never disagree:
- * - Keyboard: isDark() checks the phone's current
+ * - Keyboard: isDark() checks the device's current
  *   night mode when the mode is "system". The
  *   keyboard reads this fresh on every new field,
- *   so changing the phone's theme and reopening
+ *   so changing the device's theme and reopening
  *   the keyboard picks it up.
  * - App screen: nightMode() maps straight to
  *   AppCompatDelegate, and FOLLOW_SYSTEM lets
- *   AppCompat follow the phone live.
+ *   AppCompat follow the device live.
  */
 object ThemeMode {
     fun current(settings: SharedPreferences): String {

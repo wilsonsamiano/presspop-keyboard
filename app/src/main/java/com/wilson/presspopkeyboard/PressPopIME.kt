@@ -253,7 +253,7 @@ class PressPopIME : InputMethodService() {
     private fun refreshDarkMode() {
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         // Code 30 2nd commit: theme is Light, Dark, or
-        // System (follow the phone), resolved here so
+        // System (follow the device), resolved here so
         // the keyboard and the app screen agree.
         darkMode = ThemeMode.isDark(this, settings)
         if (::keyboardView.isInitialized) {

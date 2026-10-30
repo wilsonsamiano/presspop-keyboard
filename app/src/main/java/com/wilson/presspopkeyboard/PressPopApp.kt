@@ -24,7 +24,7 @@ class PressPopApp : Application() {
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         // Code 30 2nd commit: three modes now, via
         // ThemeMode — Light, Dark, or System (follow
-        // the phone). Old dark_mode boolean is only a
+        // the device). Old dark_mode boolean is only a
         // fallback inside ThemeMode.current().
         AppCompatDelegate.setDefaultNightMode(
             ThemeMode.nightMode(ThemeMode.current(settings))

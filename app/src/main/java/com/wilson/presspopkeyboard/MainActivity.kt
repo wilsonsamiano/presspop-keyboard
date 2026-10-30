@@ -73,7 +73,7 @@ class MainActivity : AppCompatActivity() {
         themeButton.setOnClickListener {
             // Code 30 2nd commit: three modes now, in
             // order Light -> Dark -> System -> Light.
-            // System means follow the phone's own dark
+            // System means follow the device's own dark
             // mode, for both this screen and the
             // keyboard. The old dark_mode boolean is
             // kept in step as a fallback for older
