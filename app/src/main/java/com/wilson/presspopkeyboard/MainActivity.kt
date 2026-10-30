@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -25,8 +26,9 @@ import androidx.core.content.ContextCompat
  *   to stay Light even when Dark was chosen).
  * - My Words: personal words, active at once. They are never
  *   autocorrected and are suggested first. Learned words (typed
- *   twice) appear here too, via the personal dictionary, but only
- *   manual words are listed for editing here.
+ *   at least seven times, code 36) appear here too, via the
+ *   personal dictionary. Contacts names can be imported here
+ *   (code 36) so people's names are never autocorrected away.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -404,6 +406,91 @@ class MainActivity : AppCompatActivity() {
             wordInput.text.clear()
             refreshWords()
             Toast.makeText(this, "Removed from My Words.", Toast.LENGTH_SHORT).show()
+        }
+        // Code 36 (Wilson, Oct 30, 2026):
+        // "the keyboard should look into your
+        // address book / phone book so that way
+        // it knows people's names so that it
+        // doesn't autocorrect those names."
+        // One tap, on-device only: if contacts
+        // permission is not yet granted, ask for
+        // it (request code 2, handled in
+        // onRequestPermissionsResult below);
+        // if granted, read display names, split
+        // them into first / last / hyphen parts,
+        // and add each part as a manual personal
+        // word — so a name is never autocorrected
+        // and is suggested first, exactly like a
+        // word added by hand in My Words. Names
+        // are never sent anywhere, and any name
+        // can be removed again in My Words.
+        // The keyboard picks imported names up
+        // next time it opens.
+        findViewById<Button>(R.id.contactsButton).setOnClickListener {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                val added = importContactNames()
+                refreshWords()
+                Toast.makeText(
+                    this,
+                    if (added > 0) "Imported $added new names from contacts."
+                    else "No new names found in contacts.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                ActivityCompat.requestPermissions(
+                    this, arrayOf(Manifest.permission.READ_CONTACTS), 2
+                )
+            }
+        }
+    }
+
+    // Code 36: read contact display names and
+    // add their parts as manual personal words.
+    // Returns how many NEW names were added.
+    private fun importContactNames(): Int {
+        return try {
+            val before = personal.manualWords().size
+            val cursor = contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                arrayOf(ContactsContract.Contacts.DISPLAY_NAME),
+                null, null, null
+            )
+            cursor?.use {
+                val nameIndex = it.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+                if (nameIndex < 0) return 0
+                while (it.moveToNext()) {
+                    val displayName = it.getString(nameIndex) ?: continue
+                    for (part in displayName.split(Regex("[\\s-]+"))) {
+                        val w = part.trim().lowercase()
+                        if (w.length >= 2 && w.all { c -> c.isLetter() || c == '\'' }) {
+                            personal.addManual(w)
+                        }
+                    }
+                }
+            }
+            personal.manualWords().size - before
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 2 &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            val added = importContactNames()
+            Toast.makeText(
+                this,
+                if (added > 0) "Imported $added new names from contacts. Reopen this screen to see them in My Words."
+                else "No new names found in contacts.",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 }

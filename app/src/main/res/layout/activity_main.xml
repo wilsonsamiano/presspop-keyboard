@@ -141,6 +141,13 @@
         android:text="Remove from My Words" />
 
     <Button
+        android:id="@+id/contactsButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Import names from contacts" />
+
+    <Button
         android:id="@+id/autoUpdateButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
