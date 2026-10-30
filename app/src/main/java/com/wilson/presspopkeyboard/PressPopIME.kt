@@ -1354,7 +1354,7 @@ class PressPopIME : InputMethodService() {
     }
 
     @RequiresApi(Build.VERSION_CODES.R)
-    override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle?): InlineSuggestionsRequest? {
+    override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
         val density = resources.displayMetrics.density
         val rowHeightPx = (56 * density).toInt()
         val screenWidthPx = resources.displayMetrics.widthPixels
@@ -1387,16 +1387,19 @@ class PressPopIME : InputMethodService() {
                     Size(screenWidthPx, rowHeightPx),
                     mainExecutor
                 ) { inlineContentView ->
-                    // The inflated view belongs to the
-                    // autofill service. PressPop only
-                    // hosts it — it does not read, log,
-                    // or modify its content, and tapping
-                    // it is handled by Android/autofill.
-                    val view = inlineContentView.view
-                    view.layoutParams = LinearLayout.LayoutParams(
+                    // The inflated InlineContentView IS
+                    // the view — it is a ViewGroup the
+                    // autofill service hands to PressPop.
+                    // There is no .view property on it;
+                    // that was the code 27 build error.
+                    // PressPop only hosts it — it does
+                    // not read, log, or modify its
+                    // content, and tapping it is handled
+                    // by Android/autofill.
+                    inlineContentView.layoutParams = LinearLayout.LayoutParams(
                         0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
                     )
-                    autofillRow.addView(view)
+                    autofillRow.addView(inlineContentView)
                 }
             } catch (e: Exception) {
                 // One bad suggestion must not kill the
