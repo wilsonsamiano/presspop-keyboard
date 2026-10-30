@@ -123,6 +123,7 @@ class KeyboardView @JvmOverloads constructor(
     private var debugLine: String? = null
     private val clearDebug = Runnable {
         debugLine = null
+        layoutKeys()
         invalidate()
     }
 
@@ -132,6 +133,7 @@ class KeyboardView @JvmOverloads constructor(
         debugLine = message
         removeCallbacks(clearDebug)
         postDelayed(clearDebug, 5000)
+        layoutKeys()
         invalidate()
     }
 
@@ -443,8 +445,18 @@ class KeyboardView @JvmOverloads constructor(
         // fill it, so a mode switch never resizes the window — keys
         // just get a little taller in 4-row modes, and the bottom
         // row never moves.
+        // Debug banner offset, Oct 29, 2026 (Wilson): the banner
+        // used to draw over the top of the keyboard, covering the
+        // top row and hiding the letter popups that rise above it.
+        // Now, while a debug line is showing, the keys shift down
+        // below the banner and shrink slightly to fit, so the banner
+        // never sits on top of a key. Letter popups are drawn after
+        // the banner in onDraw, so they draw on top of it. When the
+        // banner clears, layoutKeys() runs again and the keys move
+        // back to their normal positions.
+        val debugOffset = if (debugLine != null) dp(30f) else 0f
         rowHeight = if (height > 0) {
-            (height - gap * (rows.size + 1)) / rows.size
+            (height - debugOffset - gap * (rows.size + 1)) / rows.size
         } else {
             dp(52f)
         }
@@ -454,8 +466,8 @@ class KeyboardView @JvmOverloads constructor(
         // bottom row — and the spacebar in it — stays at the bottom
         // instead of floating one row up. When the height matches the
         // rows exactly, this is the same as starting at `gap`.
-        val rowsHeight = rowHeight * rows.size + gap * (rows.size + 1)
-        var top = if (height > rowsHeight) height - rowsHeight + gap else gap
+        val rowsHeight = rowHeight * rows.size + gap * (rows.size + 1) + debugOffset
+        var top = if (height > rowsHeight) height - rowsHeight + gap + debugOffset else gap + debugOffset
         val insetRowIndex = if (showNumberRow && mode == KeyboardMode.LETTERS) 2 else 1
         for ((rowIndex, row) in rows.withIndex()) {
             val totalWeight = row.sumOf { it.weight.toDouble() }.toFloat()

@@ -31,10 +31,12 @@ android {
         // fast to copy by hand. DebugMode now remembers the last
         // line, and a button in the app copies it to the clipboard.
         // Grok must build this exact version, not bump it again.
-        // Bumped Oct 29, 2026: a swipe of "hello" traced
-        // "hgfreghjklo" and matched nothing, because the matcher
-        // required both L's and a swipe only crosses L once.
-        // A repeated letter now counts from a single visit.
+        // Bumped Oct 29, 2026: the debug banner drew over the top
+        // row and hid the letter popups underneath it. While a
+        // debug line is showing, the keys now shift down below
+        // the banner and shrink slightly; popups draw on top of
+        // the banner. When the banner clears, keys move back.
+        // Grok must build this exact version, not bump it again.
         versionCode = 14
         versionName = "beta 0.1.13"
     }
