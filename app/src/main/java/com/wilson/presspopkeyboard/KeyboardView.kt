@@ -253,12 +253,23 @@ class KeyboardView @JvmOverloads constructor(
     // popup to the top edge of this view, so a top
     // number-row key's popup landed ON the key
     // itself, under the finger, which defeats the
-    // purpose. A PopupWindow sits above the key in
-    // screen space, over the strip / app area, so
-    // every row — including the top number row —
-    // pops visibly above the pressed key. It also
-    // removes itself cleanly on dismiss, so no
-    // ghost bubble is left over the strip.
+    // purpose. A PopupWindow sits above the key,
+    // over the strip / app area, so every row —
+    // including the top number row — pops visibly
+    // above the pressed key. It also removes itself
+    // cleanly on dismiss, so no ghost bubble is
+    // left over the strip.
+    // Code 32 (Wilson, Oct 30, 2026): the code 31
+    // popup used showAtLocation() with SCREEN
+    // coordinates, but a PopupWindow from an IME
+    // window treats those as relative to the
+    // keyboard window, so every popup was clipped
+    // to the BOTTOM of the keyboard — exactly what
+    // Wilson reported on v31 ("all the popping is
+    // happening on the bottom of the keyboard").
+    // showAsDropDown() is anchor-relative, so
+    // Android positions it from the key itself,
+    // and that coordinate confusion cannot happen.
     private var keyPopup: PopupWindow? = null
 
     private fun dismissKeyPopup() {
@@ -294,22 +305,29 @@ class KeyboardView @JvmOverloads constructor(
             }
             val popupW = maxOf(rect.width() * 1.25f, dp(56f))
             val popupH = rect.height() * 1.45f + dp(12f)
+            // Anchor-relative, code 32: showAsDropDown
+            // positions the popup from this view's
+            // bottom-left corner, so xOff is the
+            // popup's left edge in view coordinates,
+            // and yOff is its top edge minus this
+            // view's height. Above the key by
+            // default; below it only if above would
+            // run off the top of the screen.
+            val left = (rect.centerX() - popupW / 2)
+                .coerceIn(0f, (width - popupW).coerceAtLeast(0f))
             val loc = IntArray(2)
             getLocationOnScreen(loc)
-            val screenW = resources.displayMetrics.widthPixels
-            val x = (loc[0] + rect.centerX() - popupW / 2)
-                .coerceIn(0f, (screenW - popupW).coerceAtLeast(0f))
-            // Above the key, in screen space. Only
-            // if the key were at the very top of the
-            // screen (not a normal bottom keyboard)
-            // fall back to just below the key.
-            var y = loc[1] + rect.top - popupH - dp(4f)
-            if (y < 0) y = loc[1] + rect.bottom + dp(4f)
+            val screenTop = loc[1] + rect.top - popupH - dp(4f)
+            val yOff = if (screenTop >= 0) {
+                (rect.top - popupH - dp(4f) - height).toInt()
+            } else {
+                (rect.bottom + dp(4f) - height).toInt()
+            }
             val popup = PopupWindow(
                 bubble, popupW.toInt(), popupH.toInt(), false
             )
             keyPopup = popup
-            popup.showAtLocation(this, Gravity.NO_GRAVITY, x.toInt(), y.toInt())
+            popup.showAsDropDown(this, left.toInt(), yOff)
         } catch (e: Exception) {
             keyPopup = null
         }

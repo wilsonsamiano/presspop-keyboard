@@ -1307,19 +1307,34 @@ class PressPopIME : InputMethodService() {
             val loc = IntArray(2)
             anchor.getLocationOnScreen(loc)
             val screenW = resources.displayMetrics.widthPixels
-            val x = (loc[0] + anchor.width / 2 - popupW / 2)
+            // Code 32: anchor-relative, not
+            // showAtLocation() with screen
+            // coordinates — from an IME window
+            // those were treated as relative to
+            // the keyboard window and every popup
+            // landed at the bottom of the keyboard
+            // (Wilson, v31). showAsDropDown()
+            // positions from the anchor itself:
+            // xOff is the popup's left edge minus
+            // the anchor's left edge, yOff is its
+            // top edge minus the anchor's bottom.
+            val screenX = (loc[0] + anchor.width / 2 - popupW / 2)
                 .coerceIn(0, (screenW - popupW).coerceAtLeast(0))
+            val xOff = screenX - loc[0]
             // Above the strip if there is room, otherwise
             // just below it, over the keys — never off
             // the top of the screen.
             val yAbove = loc[1] - popupH - (8 * density).toInt()
-            val y = if (yAbove >= 0) yAbove
-                else loc[1] + anchor.height + (8 * density).toInt()
+            val yOff = if (yAbove >= 0) {
+                -(anchor.height + popupH + (8 * density).toInt())
+            } else {
+                (8 * density).toInt()
+            }
             val popup = PopupWindow(
                 bubble, popupW, popupH, false
             )
             suggestionPopup = popup
-            popup.showAtLocation(anchor, Gravity.NO_GRAVITY, x, y)
+            popup.showAsDropDown(anchor, xOff, yOff)
             Handler(Looper.getMainLooper()).postDelayed(
                 { if (suggestionPopup == popup) suggestionPopup = null
                   popup.dismiss() },
