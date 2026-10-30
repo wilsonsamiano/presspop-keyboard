@@ -143,8 +143,13 @@ object Dictionary {
         "hasnt" to "hasn't",
         "wasnt" to "wasn't",
         "werent" to "weren't",
-        "im" to "i'm",
-        "ive" to "i've",
+        // Code 26, 2nd commit: "I" is always capitalized in
+        // English, so these two are the exception to the
+        // code 21 "contractions always lowercase" rule.
+        // "im" -> "I'm", "ive" -> "I've", everywhere, not
+        // just at a sentence start.
+        "im" to "I'm",
+        "ive" to "I've",
         "theyre" to "they're",
         "youre" to "you're",
         "weve" to "we've",

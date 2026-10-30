@@ -194,6 +194,28 @@ class PressPopIME : InputMethodService() {
         }
     }
 
+    // Standalone "I", code 26 2nd commit (Wilson, on 25:
+    // "I wish the i automatically capitalizes though").
+    // Gboard capitalizes the pronoun "I" anywhere, not
+    // just at a sentence start. PressPop only did it at
+    // a sentence start, so "and i went" stayed lowercase.
+    // Returns the capitalized form for a standalone "i"
+    // and for its apostrophe forms typed with the
+    // apostrophe key ("i'm", "i've", "i'll", "i'd"),
+    // else null. "ill"/"id" are deliberately NOT here:
+    // those are ambiguous (ill = sick, id = ID), and
+    // code 21 deliberately left them unmapped.
+    private fun capitalizePronounI(word: String): String? {
+        if (word == "i") return "I"
+        return when (word.lowercase()) {
+            "i'm" -> "I'm"
+            "i've" -> "I've"
+            "i'll" -> "I'll"
+            "i'd" -> "I'd"
+            else -> null
+        }
+    }
+
     private var autoCapitalize = true // Code 25 correction: auto-capitalization is back on for sentence starts. Code 21 turned it off after Wilson's "Dont put caps", which was read too broadly — that instruction was about contractions, not sentence starts. Contractions stay lowercase via the exemption in capitalizeForSentenceStart below.
 
     // Dark mode is read fresh every time the input view is created
@@ -451,6 +473,13 @@ class PressPopIME : InputMethodService() {
                                 InputType.TYPE_TEXT_VARIATION_PASSWORD ||
                                 enterVariation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                             if (enterWord.isNotEmpty() && !isPasswordField) {
+                                val enterPronounI = capitalizePronounI(enterWord)
+                                if (enterPronounI != null && enterWord != enterPronounI) {
+                                    ic.deleteSurroundingText(enterWord.length, 0)
+                                    ic.commitText(enterPronounI, 1)
+                                    recordCommittedWord(enterPronounI)
+                                    lastCorrected = enterWord to enterPronounI
+                                } else if (true) {
                                 val enterContraction = Dictionary.CONTRACTIONS[enterWord.lowercase()]
                                 val enterRank = Dictionary.RANK_CASING[enterWord.lowercase()]
                                 if (enterRank != null && enterWord != enterRank) {
@@ -487,6 +516,7 @@ class PressPopIME : InputMethodService() {
                                 }
                                 keyboardView.setTypedWord("")
                                 refreshSuggestions("")
+                                } // close else-if(true) pronoun-I wrapper
                             } else {
                                 commitCurrentWordForLearning()
                             }
@@ -521,7 +551,8 @@ class PressPopIME : InputMethodService() {
             // Contraction expansion, code 21: a swiped
             // "dont" becomes "don't", always lowercase.
             val swipedBase = Dictionary.CONTRACTIONS[word.lowercase()] ?: word
-            val swipedWord = Dictionary.RANK_CASING[swipedBase.lowercase()] ?: swipedBase
+            val swipedWord = capitalizePronounI(swipedBase)
+                ?: Dictionary.RANK_CASING[swipedBase.lowercase()] ?: swipedBase
             val text = capitalizeForSentenceStart(swipedWord, 0) +
                 if (isPassword) "" else " "
             ic?.commitText(text, 1)
@@ -984,6 +1015,14 @@ class PressPopIME : InputMethodService() {
             return
         }
         if (word.isNotEmpty()) {
+            val pronounI = capitalizePronounI(word)
+            if (pronounI != null && word != pronounI) {
+                // Code 26, 2nd commit: standalone "i" -> "I",
+                // "i'm" -> "I'm", etc., anywhere in a sentence.
+                ic.deleteSurroundingText(word.length, 0)
+                ic.commitText(pronounI, 1)
+                committedWordThisSpace = pronounI
+            } else {
             // Contraction expansion, code 21, checked BEFORE
             // the isWord check: "dont" IS a dictionary word,
             // so without this it would be left alone and never
@@ -1043,6 +1082,7 @@ class PressPopIME : InputMethodService() {
                 personal.noteTyped(word)
             }
             keyboardView.personalWords = personal.allPersonalWords()
+            } // end pronoun-I else block
         }
         // Record the committed word for next-word learning:
         // the correction if one was made in this Space press,
@@ -1211,7 +1251,8 @@ class PressPopIME : InputMethodService() {
         // through to the completion path, which added no
         // space — the bug Wilson reported on code 23.
         if (keyboardView.typedWord.isEmpty() && index != 0) {
-            val nextWord = Dictionary.RANK_CASING[suggestion.lowercase()]
+            val nextWord = capitalizePronounI(suggestion)
+                ?: Dictionary.RANK_CASING[suggestion.lowercase()]
                 ?: capitalizeForSentenceStart(suggestion, 0)
             ic.commitText(nextWord + " ", 1)
             recordCommittedWord(suggestion)
@@ -1226,7 +1267,8 @@ class PressPopIME : InputMethodService() {
         // suggestion that is a no-apostrophe form.
         val expandedSuggestion = Dictionary.CONTRACTIONS[suggestion.lowercase()] ?: suggestion
         // Capitalize before deleting, for the same reason as above.
-        val finalSuggestion = Dictionary.RANK_CASING[expandedSuggestion.lowercase()]
+        val finalSuggestion = capitalizePronounI(expandedSuggestion)
+            ?: Dictionary.RANK_CASING[expandedSuggestion.lowercase()]
             ?: capitalizeForSentenceStart(expandedSuggestion, word.length)
         if (word.isNotEmpty()) {
             ic.deleteSurroundingText(word.length, 0)
