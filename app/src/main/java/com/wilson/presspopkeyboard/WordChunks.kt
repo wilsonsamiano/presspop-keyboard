@@ -2076,5 +2076,11 @@ object WordChunk10 {
         "wo1", "cw2", "cw3", "cw4", "cw5", "2lt", "1lt", "ltc", "ltg",
         "ensign", "midshipman", "seaman", "airman", "gunnery", "lance",
         "specialist", "brigadier", "commodore",
+        "lcpl", "gysgt", "sgtmaj", "1stsgt", "mgysgt",
+        "2ndlt", "1stlt", "ltcol", "bgen", "majgen", "ltgen",
+        "amn", "a1c", "sra", "ssgt", "tsgt", "msgt", "smsgt", "cmsgt",
+        "ens", "ltjg", "lcdr", "cpo", "scpo", "mcpo",
+        "po1", "po2", "po3", "radm", "vadm", "adm",
+        "cwo2", "cwo3", "cwo4", "cwo5",
     )
 }

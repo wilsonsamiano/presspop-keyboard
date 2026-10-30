@@ -156,6 +156,58 @@ object Dictionary {
         "heres" to "here's"
     )
 
+    // Military rank casing, code 25 (Wilson: Army ranks
+    // should be capitalized all letters, follow guidance
+    // for different branches). Keys are lowercase typed
+    // forms, values are the official abbreviation:
+    // Army: ALL CAPS (AR 25-50) — PVT, SFC, 1SG, CPT, etc.
+    // Marine Corps: mixed case — LCpl, GySgt, SgtMaj,
+    // 1stSgt, MGySgt, 2ndLt, LtCol, BGen, MajGen, LtGen.
+    // Air Force / Space Force: mixed case — Amn, A1C,
+    // SrA, SSgt, TSgt, MSgt, SMSgt, CMSgt.
+    // Navy / Coast Guard: ALL CAPS — ENS, LTJG, LCDR,
+    // CPO, SCPO, MCPO, PO1, RADM, VADM, ADM.
+    // Ambiguous forms default to Wilson's branch, Army
+    // (SGT, MAJ, COL, GEN are Army all-caps here, even
+    // though other branches write Sgt, Maj, Col, Gen),
+    // and forms that are not an Army abbreviation at
+    // all (capt, ssgt, msgt) are left to their own
+    // branch's casing. Full rank titles (sergeant,
+    // captain) are ordinary words, not abbreviations,
+    // so they are NOT forced to all caps.
+    val RANK_CASING: Map<String, String> = mapOf(
+        // Army, all caps
+        "pvt" to "PVT", "pv2" to "PV2", "pfc" to "PFC",
+        "spc" to "SPC", "cpl" to "CPL", "sgt" to "SGT",
+        "ssg" to "SSG", "sfc" to "SFC", "msg" to "MSG",
+        "1sg" to "1SG", "sgm" to "SGM", "csm" to "CSM",
+        "wo1" to "WO1", "cw2" to "CW2", "cw3" to "CW3",
+        "cw4" to "CW4", "cw5" to "CW5",
+        "2lt" to "2LT", "1lt" to "1LT", "cpt" to "CPT",
+        "maj" to "MAJ", "ltc" to "LTC", "col" to "COL",
+        "bg" to "BG", "mg" to "MG", "ltg" to "LTG",
+        "gen" to "GEN",
+        // Marine Corps, mixed case
+        "lcpl" to "LCpl", "gysgt" to "GySgt",
+        "sgtmaj" to "SgtMaj", "1stsgt" to "1stSgt",
+        "mgysgt" to "MGySgt", "2ndlt" to "2ndLt",
+        "1stlt" to "1stLt", "ltcol" to "LtCol",
+        "bgen" to "BGen", "majgen" to "MajGen",
+        "ltgen" to "LtGen",
+        // Air Force / Space Force, mixed case
+        "amn" to "Amn", "a1c" to "A1C", "sra" to "SrA",
+        "ssgt" to "SSgt", "tsgt" to "TSgt",
+        "msgt" to "MSgt", "smsgt" to "SMSgt",
+        "cmsgt" to "CMSgt",
+        // Navy / Coast Guard, all caps
+        "ens" to "ENS", "ltjg" to "LTJG", "lcdr" to "LCDR",
+        "cpo" to "CPO", "scpo" to "SCPO", "mcpo" to "MCPO",
+        "po1" to "PO1", "po2" to "PO2", "po3" to "PO3",
+        "radm" to "RADM", "vadm" to "VADM", "adm" to "ADM",
+        "cwo2" to "CWO2", "cwo3" to "CWO3",
+        "cwo4" to "CWO4", "cwo5" to "CWO5"
+    )
+
     val BIGRAMS: Map<String, List<String>> = mapOf(
         "i" to listOf("am", "have", "think"),
         "you" to listOf("are", "have", "can"),
@@ -342,7 +394,11 @@ object Dictionary {
         val common = activeWords.filter {
             it.startsWith(p) && it !in personal && it !in apostrophe
         }
+        // Code 25: rank suggestions show in their
+        // official casing in the strip (SFC, GySgt),
+        // not in dictionary lowercase.
         return (personal + apostrophe + common).distinct().take(5)
+            .map { RANK_CASING[it.lowercase()] ?: it }
     }
 
     /**

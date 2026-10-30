@@ -419,7 +419,12 @@ class PressPopIME : InputMethodService() {
                                 enterVariation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                             if (enterWord.isNotEmpty() && !isPasswordField) {
                                 val enterContraction = Dictionary.CONTRACTIONS[enterWord.lowercase()]
-                                if (enterContraction != null) {
+                                val enterRank = Dictionary.RANK_CASING[enterWord.lowercase()]
+                                if (enterRank != null && enterWord != enterRank) {
+                                    ic.deleteSurroundingText(enterWord.length, 0)
+                                    ic.commitText(enterRank, 1)
+                                    recordCommittedWord(enterRank)
+                                } else if (enterContraction != null) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterContraction, 1)
                                     recordCommittedWord(enterContraction)
@@ -433,8 +438,10 @@ class PressPopIME : InputMethodService() {
                                         enterWord, personal.allPersonalWords()
                                     )
                                     if (enterCorrection != null) {
+                                        val enterFinal = Dictionary.RANK_CASING[enterCorrection.lowercase()]
+                                            ?: enterCorrection
                                         ic.deleteSurroundingText(enterWord.length, 0)
-                                        ic.commitText(enterCorrection, 1)
+                                        ic.commitText(enterFinal, 1)
                                         recordCommittedWord(enterCorrection)
                                         lastCorrected = enterWord to enterCorrection
                                     } else {
@@ -480,7 +487,8 @@ class PressPopIME : InputMethodService() {
                 InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
             // Contraction expansion, code 21: a swiped
             // "dont" becomes "don't", always lowercase.
-            val swipedWord = Dictionary.CONTRACTIONS[word.lowercase()] ?: word
+            val swipedBase = Dictionary.CONTRACTIONS[word.lowercase()] ?: word
+            val swipedWord = Dictionary.RANK_CASING[swipedBase.lowercase()] ?: swipedBase
             val text = capitalizeForSentenceStart(swipedWord, 0) +
                 if (isPassword) "" else " "
             ic?.commitText(text, 1)
@@ -820,6 +828,13 @@ class PressPopIME : InputMethodService() {
         }
     }
 
+    // Rank casing, code 25: return the official
+    // abbreviation for a rank, or [word] unchanged.
+    // Applied before sentence-start capitalization, so
+    // a rank never becomes Sfc / Lcpl by accident.
+    private fun caseRank(word: String): String =
+        Dictionary.RANK_CASING[word.lowercase()] ?: word
+
     // Capitalize [word] when it starts a sentence. [charsBeforeWord]
     // is how many characters of already-committed text belong to the
     // word being replaced (0 for a swipe word, which is not typed yet).
@@ -930,7 +945,19 @@ class PressPopIME : InputMethodService() {
             // become "don't". Always lowercase, never
             // capitalized, per Wilson's "dont put caps".
             val contraction = Dictionary.CONTRACTIONS[word.lowercase()]
-            if (contraction != null) {
+            val rankCased = Dictionary.RANK_CASING[word.lowercase()]
+            if (rankCased != null && word != rankCased) {
+                // Code 25: a typed rank comes out in its
+                // official casing on Space — Army all caps
+                // (sfc -> SFC), other branches as listed in
+                // Dictionary.RANK_CASING (gysgt -> GySgt).
+                // Not an autocorrection, so lastCorrected
+                // is NOT set: backspace after a rank deletes
+                // normally, it does not "undo" the casing.
+                ic.deleteSurroundingText(word.length, 0)
+                ic.commitText(rankCased, 1)
+                committedWordThisSpace = rankCased
+            } else if (contraction != null) {
                 ic.deleteSurroundingText(word.length, 0)
                 ic.commitText(contraction, 1)
                 lastCorrected = word to contraction
@@ -951,7 +978,8 @@ class PressPopIME : InputMethodService() {
                 val correction = Dictionary.bestCorrection(word, personal.allPersonalWords())
                 if (correction != null) {
                     val finalCorrection =
-                        capitalizeForSentenceStart(correction, word.length)
+                        Dictionary.RANK_CASING[correction.lowercase()]
+                            ?: capitalizeForSentenceStart(correction, word.length)
                     showDebug("Autocorrect: '$word' -> '$finalCorrection'")
                     ic.deleteSurroundingText(word.length, 0)
                     ic.commitText(finalCorrection, 1)
@@ -1124,7 +1152,8 @@ class PressPopIME : InputMethodService() {
         // through to the completion path, which added no
         // space — the bug Wilson reported on code 23.
         if (keyboardView.typedWord.isEmpty() && index != 0) {
-            val nextWord = capitalizeForSentenceStart(suggestion, 0)
+            val nextWord = Dictionary.RANK_CASING[suggestion.lowercase()]
+                ?: capitalizeForSentenceStart(suggestion, 0)
             ic.commitText(nextWord + " ", 1)
             recordCommittedWord(suggestion)
             lastCorrected = null
@@ -1138,7 +1167,8 @@ class PressPopIME : InputMethodService() {
         // suggestion that is a no-apostrophe form.
         val expandedSuggestion = Dictionary.CONTRACTIONS[suggestion.lowercase()] ?: suggestion
         // Capitalize before deleting, for the same reason as above.
-        val finalSuggestion = capitalizeForSentenceStart(expandedSuggestion, word.length)
+        val finalSuggestion = Dictionary.RANK_CASING[expandedSuggestion.lowercase()]
+            ?: capitalizeForSentenceStart(expandedSuggestion, word.length)
         if (word.isNotEmpty()) {
             ic.deleteSurroundingText(word.length, 0)
         }

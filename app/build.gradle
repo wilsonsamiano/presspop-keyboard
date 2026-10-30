@@ -200,3 +200,12 @@ dependencies {
 // a trailing space (next-word and completion taps;
 // password fields exempt). Old next-word tap only
 // added a space when no correction had just happened.
+
+// Code 25, second commit, Oct 29, 2026 (Wilson, before
+// sending to Grok): military rank casing. Army
+// abbreviations come out ALL CAPS on Space / Enter /
+// swipe / suggestion tap (sfc -> SFC); other branches
+// use their official casing (Marine LCpl, GySgt,
+// SgtMaj; Air Force SrA, SSgt, MSgt; Navy LTJG, CPO).
+// Version stays 25 — this commit was added before
+// Wilson sent code 25 to Grok.
