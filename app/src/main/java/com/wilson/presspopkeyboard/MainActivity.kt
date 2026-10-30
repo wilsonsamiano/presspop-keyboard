@@ -352,13 +352,36 @@ class MainActivity : AppCompatActivity() {
 
         val wordsText = findViewById<TextView>(R.id.wordsText)
         val wordInput = findViewById<EditText>(R.id.wordInput)
+        // Code 36 (Wilson, Oct 30, 2026):
+        // "Is there a way to see the learned
+        // words that I can remove them?"
+        // Previously, no: this screen only
+        // listed MANUAL words, while learned
+        // words (typed twice, or restored by
+        // undo) were stored on-device but
+        // never shown, so a learned typo like
+        // "thr" could not be found to remove
+        // it. Now both lists are shown, and
+        // the Remove button (code 35, which
+        // removes manual AND learned words)
+        // works for either list: type the word
+        // in the box above and tap Remove, and
+        // it disappears from its list on refresh.
         fun refreshWords() {
-            val words = personal.manualWords().sorted()
-            wordsText.text = if (words.isEmpty()) {
+            val manual = personal.manualWords().sorted()
+            val learned = personal.learnedWords().sorted()
+            val manualText = if (manual.isEmpty()) {
                 "My words: none yet. Type a word above and tap Add."
             } else {
-                "My words: " + words.joinToString(", ")
+                "My words: " + manual.joinToString(", ")
             }
+            val learnedText = if (learned.isEmpty()) {
+                "Learned words: none yet."
+            } else {
+                "Learned words: " + learned.joinToString(", ")
+            }
+            wordsText.text = manualText + "\n" + learnedText +
+                "\nTo remove a word from either list, type it above and tap Remove."
         }
         refreshWords()
         findViewById<Button>(R.id.addWordButton).setOnClickListener {
