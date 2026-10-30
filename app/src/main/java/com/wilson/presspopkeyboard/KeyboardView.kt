@@ -204,8 +204,17 @@ class KeyboardView @JvmOverloads constructor(
     var typedWord: String = ""
         private set
 
+    /** True if any letter of the current word was typed uppercase.
+     * Code 24: a capitalized unknown word is likely a proper
+     * name (Guinard) or an acronym (SFC), not a typo — see
+     * PressPopIME.handleSpace, which skips autocorrect
+     * for such words. Cleared whenever the word clears. */
+    var typedWordHadUpper: Boolean = false
+        private set
+
     fun setTypedWord(word: String) {
         typedWord = word.lowercase()
+        if (word.isEmpty()) typedWordHadUpper = false
         onWordChanged?.invoke(typedWord)
         invalidate()
     }
@@ -1096,9 +1105,11 @@ class KeyboardView @JvmOverloads constructor(
                             // row) ends the word, or autocorrect would
                             // try to correct "word," as if it were a word.
                             if (key.output.length == 1 && key.output[0].isLetter()) {
+                                if (key.output[0].isUpperCase()) typedWordHadUpper = true
                                 typedWord += key.output.lowercase()
                             } else {
                                 typedWord = ""
+                                typedWordHadUpper = false
                             }
                             noteTypedWordChange()
                         } else if (mode == KeyboardMode.NUMBERS || mode == KeyboardMode.SYMBOLS ||
@@ -1132,10 +1143,12 @@ class KeyboardView @JvmOverloads constructor(
                         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onKey?.invoke(key)
                         typedWord = ""
+                        typedWordHadUpper = false
                         noteTypedWordChange()
                     }
                     KeyAction.DELETE -> {
                         typedWord = typedWord.dropLast(1)
+                        if (typedWord.isEmpty()) typedWordHadUpper = false
                         noteTypedWordChange()
                         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onKey?.invoke(key)
@@ -1147,6 +1160,7 @@ class KeyboardView @JvmOverloads constructor(
                         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onKey?.invoke(key)
                         typedWord = ""
+                        typedWordHadUpper = false
                         noteTypedWordChange()
                     }
                 }

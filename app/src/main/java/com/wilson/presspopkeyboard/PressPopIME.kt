@@ -426,7 +426,8 @@ class PressPopIME : InputMethodService() {
                                     lastCorrected = enterWord to enterContraction
                                 } else if (!Dictionary.isWord(enterWord) &&
                                     !personal.isPersonal(enterWord) &&
-                                    enterWord.all { it.code < 128 }
+                                    enterWord.all { it.code < 128 } &&
+                                    !keyboardView.typedWordHadUpper
                                 ) {
                                     val enterCorrection = Dictionary.bestCorrection(
                                         enterWord, personal.allPersonalWords()
@@ -842,7 +843,43 @@ class PressPopIME : InputMethodService() {
     // selection — the old code only ever deleted one character before
     // the cursor (deleteSurroundingText ignores a selection), so a
     // highlighted word or sentence survived backspace.
+    // Backspace undo, code 24 (Wilson: "Can we add undos
+    // for autocorrect?"): the old undo only worked by
+    // tapping the left suggestion slot, and only before
+    // typing the next word — and backspace deleted a
+    // character instead of undoing. Now, if the cursor
+    // is still right after a correction plus its space
+    // (Space correction) or newline (Enter correction),
+    // and no new word is being typed, the FIRST Delete
+    // restores the original word in full, and learns it
+    // as a personal word so it is never re-corrected.
+    // A second Delete then deletes normally.
+    private fun tryUndoLastCorrection(): Boolean {
+        val corrected = lastCorrected ?: return false
+        if (keyboardView.typedWord.isNotEmpty()) return false
+        val ic = currentInputConnection ?: return false
+        val before = try {
+            ic.getTextBeforeCursor(corrected.second.length + 2, 0)?.toString()
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        val terminator = when {
+            before.endsWith(corrected.second + " ") -> " "
+            before.endsWith(corrected.second + "\n") -> "\n"
+            else -> return false
+        }
+        ic.deleteSurroundingText(corrected.second.length + 1, 0)
+        ic.commitText(corrected.first + terminator, 1)
+        personal.addManual(corrected.first)
+        keyboardView.personalWords = personal.allPersonalWords()
+        lastCorrected = null
+        keyboardView.setTypedWord("")
+        refreshSuggestions("")
+        return true
+    }
+
     private fun handleDelete() {
+        if (tryUndoLastCorrection()) return
         val ic = currentInputConnection ?: return
         val extracted = try {
             ic.getExtractedText(
@@ -894,7 +931,17 @@ class PressPopIME : InputMethodService() {
                 lastCorrected = word to contraction
                 committedWordThisSpace = contraction
             } else if (!Dictionary.isWord(word) && !personal.isPersonal(word) &&
-                word.all { it.code < 128 }
+                word.all { it.code < 128 } &&
+                // Code 24, proper-name / acronym guard: a word
+                // typed with any uppercase letter is likely a
+                // proper name (Guinard) or an acronym (SFC),
+                // not a typo. Without this, Space flipped
+                // SFC -> sec (distance 1) and Guinard ->
+                // guitar (distance 2), and those flips went
+                // out in chat before any undo could catch
+                // them. Contraction expansion above is NOT
+                // guarded: Dont -> don't is still wanted.
+                !keyboardView.typedWordHadUpper
             ) {
                 val correction = Dictionary.bestCorrection(word, personal.allPersonalWords())
                 if (correction != null) {
@@ -1035,7 +1082,16 @@ class PressPopIME : InputMethodService() {
             } catch (e: Exception) {
                 null
             }
-            val hasTrailingSpace = before?.endsWith(" ") == true
+            // Code 24: terminator may be a space (Space
+            // correction) or a newline (Enter correction).
+            // The old code only handled a space, so undo
+            // after Enter garbled the word.
+            val terminator = when {
+                before?.endsWith(" ") == true -> " "
+                before?.endsWith("\n") == true -> "\n"
+                else -> ""
+            }
+            val hasTrailingSpace = terminator.isNotEmpty()
             val charsToDrop = corrected.second.length + if (hasTrailingSpace) 1 else 0
             // Capitalize before deleting: the helper reads the text
             // before the cursor, which must still contain the word.
@@ -1043,7 +1099,7 @@ class PressPopIME : InputMethodService() {
                 corrected.first, charsToDrop
             )
             ic.deleteSurroundingText(charsToDrop, 0)
-            ic.commitText(restored + if (hasTrailingSpace) " " else "", 1)
+            ic.commitText(restored + terminator, 1)
             personal.addManual(corrected.first)
             keyboardView.personalWords = personal.allPersonalWords()
             lastCorrected = null
