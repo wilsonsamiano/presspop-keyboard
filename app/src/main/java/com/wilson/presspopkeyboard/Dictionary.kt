@@ -270,14 +270,28 @@ object Dictionary {
                 cand.last() != t.last()
             ) continue
             var ti = 0
+            var prev = '\u0000'
             var matched = true
             for (c in cand) {
+                // A doubled letter is one key. The tracer drops
+                // consecutive repeats, and a swipe of "hello" passes
+                // L only once, so the trace is "hgfreghjklo", not
+                // "...ll...". Requiring both L's made that match
+                // nothing. Use a second visit when the trace has one;
+                // otherwise the single visit already counts.
+                if (c == prev) {
+                    var look = ti
+                    while (look < t.length && t[look] != c) look++
+                    if (look < t.length) ti = look + 1
+                    continue
+                }
                 while (ti < t.length && t[ti] != c) ti++
                 if (ti >= t.length) {
                     matched = false
                     break
                 }
                 ti++
+                prev = c
             }
             if (matched && (subBest == null || cand.length > subBest.length)) {
                 subBest = cand

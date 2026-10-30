@@ -31,8 +31,12 @@ android {
         // fast to copy by hand. DebugMode now remembers the last
         // line, and a button in the app copies it to the clipboard.
         // Grok must build this exact version, not bump it again.
-        versionCode = 13
-        versionName = "beta 0.1.12"
+        // Bumped Oct 29, 2026: a swipe of "hello" traced
+        // "hgfreghjklo" and matched nothing, because the matcher
+        // required both L's and a swipe only crosses L once.
+        // A repeated letter now counts from a single visit.
+        versionCode = 14
+        versionName = "beta 0.1.13"
     }
 
     signingConfigs {
