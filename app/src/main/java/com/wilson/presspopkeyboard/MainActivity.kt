@@ -13,13 +13,16 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 /**
  * PressPop setup screen + personal keyboard controls.
  * - Enable / switch the keyboard (Android requires this by hand).
- * - Dark / light theme for the keyboard.
+ * - Dark / light theme for the keyboard and for this
+ *   settings screen itself (code 30: the screen used
+ *   to stay Light even when Dark was chosen).
  * - My Words: personal words, active at once. They are never
  *   autocorrected and are suggested first. Learned words (typed
  *   twice) appear here too, via the personal dictionary, but only
@@ -69,12 +72,27 @@ class MainActivity : AppCompatActivity() {
         themeButton.setOnClickListener {
             val dark = !settings.getBoolean("dark_mode", false)
             settings.edit().putBoolean("dark_mode", dark).apply()
+            // Code 30: the same Dark setting already drove
+            // the keyboard, but this screen stayed Light
+            // because the manifest theme was hardcoded
+            // Light. Now the app theme is DayNight and
+            // this button also switches the app itself,
+            // immediately, by recreating this screen —
+            // no need to close and reopen the app.
+            // The keyboard itself still picks the new
+            // theme up next time it opens.
+            AppCompatDelegate.setDefaultNightMode(
+                if (dark) AppCompatDelegate.MODE_NIGHT_YES
+                else AppCompatDelegate.MODE_NIGHT_NO
+            )
             refreshThemeLabel()
             Toast.makeText(
                 this,
-                "Theme saved. Switch keyboards away and back to apply it.",
-                Toast.LENGTH_LONG
+                if (dark) "Dark theme on. The keyboard picks it up next time it opens."
+                else "Light theme on. The keyboard picks it up next time it opens.",
+                Toast.LENGTH_SHORT
             ).show()
+            recreate()
         }
 
         // Voice typing permission, number row, one-handed width.
