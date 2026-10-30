@@ -868,9 +868,11 @@ class KeyboardView @JvmOverloads constructor(
         }
         if (centers.isEmpty()) return null
         // Key width: median CHAR key width, px.
-        val keyWidths = keyRects.entries
+        // keyRects is a List<KeyRect>, not a Map: no .entries,
+        // and a KeyRect's rect is .rect, not .value.
+        val keyWidths = keyRects
             .filter { it.key.action == KeyAction.CHAR && it.key.output.length == 1 }
-            .map { it.value.width().toFloat() }.sorted()
+            .map { it.rect.width().toFloat() }.sorted()
         val keyW = if (keyWidths.isNotEmpty()) keyWidths[keyWidths.size / 2] else dp(60f)
         if (keyW <= 0f) return null
         val first = swipePoints[0]
@@ -1049,7 +1051,10 @@ class KeyboardView @JvmOverloads constructor(
                 .map { it.key }.filter { it != startLetter }.take(3).toSet()
             if (neighbors.isNotEmpty()) {
                 val picked2 = pickFrom(scoreCandidates(neighbors))
-                if (picked2 != null && (picked == null || picked2.rescore < picked!!.rescore)) {
+                // We are inside `picked == null`, so picked2
+                // always wins here; no rescore comparison
+                // against a null picked is needed.
+                if (picked2 != null) {
                     picked = picked2
                 }
             }
