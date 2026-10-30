@@ -71,8 +71,15 @@ android {
         // 64KB method-size limit. Shape matching now filters by
         // first letter first, so a 20k dictionary stays fast.
         // Grok must build this exact version, not bump it again.
-        versionCode = 17
-        versionName = "beta 0.1.16"
+        // Bumped Oct 29, 2026 (Wilson: clipboard history cut a
+        // copied Grok block off at 500 characters): the 500-char
+        // cap in ClipboardHistory is removed — a clip is stored
+        // whole, no PressPop-imposed character cap, and tapping
+        // a history item pastes the whole thing. History stays
+        // at 20 items, newest first.
+        // Grok must build this exact version, not bump it again.
+        versionCode = 18
+        versionName = "beta 0.1.17"
     }
 
     signingConfigs {

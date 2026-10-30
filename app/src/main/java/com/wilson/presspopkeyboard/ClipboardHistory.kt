@@ -7,13 +7,23 @@ import android.content.Context
  *
  * Android does not give an app the full system clipboard history,
  * so PressPop builds its own: while the keyboard service is running,
- * every new text clip is remembered, newest first, up to 20 items
- * of up to 500 characters each. Nothing leaves the device.
+ * every new text clip is remembered, newest first, up to 20 items.
+ * There is NO per-item character cap in PressPop any more
+ * (Oct 29, 2026, Wilson: a copied Grok instruction block was cut
+ * off at 500 characters, so the cap was removed): a long block
+ * is stored whole, and tapping it in the panel pastes the whole
+ * thing. The panel row itself only shows the first 60 characters
+ * as a preview — that preview is display only, the pasted text
+ * is not cut. Nothing leaves the device.
  *
- * Honest limit: copied text can include sensitive things (a code,
- * a password pasted from a manager). History is therefore capped,
- * and the panel in the keyboard has a one-tap Clear. If you copy
- * sensitive text, clear it after pasting.
+ * Honest limit: "unlimited" here means no PressPop-imposed cap.
+ * The only real limits are the device's storage and Android's
+ * own clipboard handling for very large clips (megabytes).
+ * A Grok instruction block, typically 1-3 KB, is far under that.
+ * History is still capped at 20 items, newest first, and the
+ * panel has a one-tap Clear. Copied text can include sensitive
+ * things (a code, a password pasted from a manager), so if you
+ * copy sensitive text, clear it after pasting.
  */
 class ClipboardHistory(context: Context) {
     private val prefs = context.getSharedPreferences("presspop_clipboard", Context.MODE_PRIVATE)
@@ -25,7 +35,8 @@ class ClipboardHistory(context: Context) {
     }
 
     fun add(text: String) {
-        val clean = text.trim().take(500)
+        // No character cap: store the whole clip, trimmed only.
+        val clean = text.trim()
         if (clean.isEmpty()) return
         val items = all().toMutableList()
         if (items.firstOrNull() == clean) return
