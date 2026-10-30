@@ -37,8 +37,18 @@ android {
         // the banner and shrink slightly; popups draw on top of
         // the banner. When the banner clears, keys move back.
         // Grok must build this exact version, not bump it again.
-        versionCode = 14
-        versionName = "beta 0.1.13"
+        // Bumped Oct 29, 2026 (Wilson): a landed swipe still needed
+        // a manual Space before the next word, and fixing broken
+        // words one by one would mean going through the whole
+        // dictionary. So: (1) a swiped word now commits with a
+        // trailing space, so the next word is automatically a
+        // fresh word (password fields excepted); (2) swipe tracing
+        // now samples every ~8dp along each move segment, so a
+        // fast swipe can no longer skip a key's letter — a
+        // systematic fix for many words at once, not per-word.
+        // Grok must build this exact version, not bump it again.
+        versionCode = 15
+        versionName = "beta 0.1.14"
     }
 
     signingConfigs {

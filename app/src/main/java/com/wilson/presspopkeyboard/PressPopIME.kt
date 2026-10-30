@@ -330,7 +330,25 @@ class PressPopIME : InputMethodService() {
 
         keyboardView.onSwipeWord = { word ->
             val ic = currentInputConnection
-            ic?.commitText(capitalizeForSentenceStart(word, 0), 1)
+            // Auto-space after a swiped word, Oct 29, 2026 (Wilson):
+            // a landed swipe used to leave the cursor right after
+            // the word, so the user still had to press Space before
+            // the next word — and tap-typing or swiping the next
+            // word without it joined it onto the swiped word. Now
+            // the swipe commits "word " itself, so the next attempt
+            // is automatically a fresh, separate word. Password
+            // fields are the one exception: a trailing space there
+            // would corrupt the password, so they get the word only.
+            val inputType = currentInputEditorInfo?.inputType
+                ?: InputType.TYPE_CLASS_TEXT
+            val variation = inputType and InputType.TYPE_MASK_VARIATION
+            val isPassword = variation ==
+                InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation ==
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            val text = capitalizeForSentenceStart(word, 0) +
+                if (isPassword) "" else " "
+            ic?.commitText(text, 1)
             if (keyboardView.shiftOn && !keyboardView.shiftLock) {
                 keyboardView.shiftOn = false
             }
@@ -338,6 +356,7 @@ class PressPopIME : InputMethodService() {
             keyboardView.personalWords = personal.allPersonalWords()
             keyboardView.setTypedWord("")
             refreshSuggestions("")
+            updateAutoShift()
         }
 
         keyboardView.onCursorMove = { delta ->

@@ -673,22 +673,45 @@ class KeyboardView @JvmOverloads constructor(
                     handler.removeCallbacks(longPressRunnable)
                 }
                 val hit = keyAt(event.x, event.y)
-                // Swipe tracing, Oct 29, 2026 (second fix): only record
-                // a letter when the finger is actually inside that
-                // key's rectangle — keyAt() returns the NEAREST key,
-                // so recording on nearest alone recorded every key
-                // passed NEAR and made garbage traces. But the first
-                // version of this fix gated recording on the key
-                // CHANGING, and that broke tracing the other way:
-                // pressedKey already changes to a key while the finger
-                // is still in the gap before it, so by the time the
-                // finger actually enters that key, hit.key ==
-                // pressedKey and the letter was never recorded at all.
-                // Recording is therefore independent of the key-change
-                // check: every move event inside a letter key records
-                // that letter (deduped against the last one), whether
-                // or not the pressed key just changed.
-                if (hit != null && hit.key.action == KeyAction.CHAR &&
+                // Swipe tracing, Oct 29, 2026 (systematic fix, not
+                // per-word): only record a letter when the finger is
+                // actually inside that key's rectangle, because
+                // keyAt() returns the NEAREST key, so recording on
+                // nearest alone recorded every key passed NEAR and
+                // made garbage traces. But move events alone are too
+                // sparse: a fast swipe jumps 20-40dp between events
+                // and can skip a whole key's rectangle, so its letter
+                // never appears in the trace and the word fails to
+                // match. Fixing that word by word would mean going
+                // through the whole dictionary. So the segment from
+                // the previous point to this one is sampled every
+                // ~8dp, and every key rectangle that segment crosses
+                // records its letter, in order (deduped against the
+                // last one). That fixes skipped letters for every
+                // word at once, instead of one word at a time.
+                if (mode == KeyboardMode.LETTERS && swipePoints.size >= 2) {
+                    val prev = swipePoints[swipePoints.size - 2]
+                    val curr = swipePoints[swipePoints.size - 1]
+                    val dist = hypot(curr.x - prev.x, curr.y - prev.y)
+                    val steps = maxOf(1, (dist / dp(8f)).toInt())
+                    for (i in 1..steps) {
+                        val fx = prev.x + (curr.x - prev.x) * i / steps
+                        val fy = prev.y + (curr.y - prev.y) * i / steps
+                        val sample = keyAt(fx, fy)
+                        if (sample != null &&
+                            sample.key.action == KeyAction.CHAR &&
+                            fx in sample.rect.left..sample.rect.right &&
+                            fy in sample.rect.top..sample.rect.bottom
+                        ) {
+                            val letter = sample.key.output.lowercase()
+                            if (visitedLetters.isEmpty() ||
+                                visitedLetters.last() != letter
+                            ) {
+                                visitedLetters.add(letter)
+                            }
+                        }
+                    }
+                } else if (hit != null && hit.key.action == KeyAction.CHAR &&
                     mode == KeyboardMode.LETTERS &&
                     event.x in hit.rect.left..hit.rect.right &&
                     event.y in hit.rect.top..hit.rect.bottom
