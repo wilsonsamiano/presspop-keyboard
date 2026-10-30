@@ -483,6 +483,37 @@ class PressPopIME : InputMethodService() {
                     when (key.action) {
                         KeyAction.VOICE -> handleVoice()
                         KeyAction.CHAR -> {
+                            // Code 33 (Wilson, Oct 30, 2026):
+                            // a comma or period pressed after a
+                            // space must not leave "word ,"
+                            // or "word ." behind — typing a
+                            // word, then Space, then "," or
+                            // "." is the normal way a sentence
+                            // ends, and the space before the
+                            // punctuation is never wanted.
+                            // So if the character before the
+                            // cursor is a single space, delete
+                            // it first, then commit the mark.
+                            // Comma and period ONLY, as asked
+                            // — other punctuation is left alone
+                            // so sequences like "$100" or
+                            // "2026-10" are never touched.
+                            // Password fields are exempt: a
+                            // space there is part of the
+                            // password, not a separator.
+                            if (key.output in setOf(",", ".") && !isPasswordField()) {
+                                try {
+                                    if (ic.getTextBeforeCursor(1, 0)?.toString() == " ") {
+                                        ic.deleteSurroundingText(1, 0)
+                                    }
+                                } catch (e: Exception) {
+                                    // If the field cannot report
+                                    // the character before the
+                                    // cursor, just commit the
+                                    // mark as before — never
+                                    // break typing for this.
+                                }
+                            }
                             ic.commitText(key.output, 1)
                             // One-shot shift: a single (non-locked) shift,
                             // manual or automatic, applies to one letter only.
