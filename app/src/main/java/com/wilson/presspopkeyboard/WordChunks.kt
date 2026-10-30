@@ -2071,6 +2071,6 @@ object WordChunk10 {
         "stale", "swam", "swims", "swipe", "swum", "tagalog", "tempt", "that's", "there's", "they'd",
         "they'll", "they're", "they've", "thirst", "thirsty", "tore", "tremble", "unfold", "wakes", "wasn't",
         "we'd", "we'll", "we're", "we've", "weep", "weren't", "what's", "woken", "won't", "wouldn't",
-        "you'd", "you'll", "you're", "you've", "defeats",
+        "you'd", "you'll", "you're", "you've", "defeats", "he's", "she's",
     )
 }

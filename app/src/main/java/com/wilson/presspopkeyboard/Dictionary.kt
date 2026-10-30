@@ -113,6 +113,49 @@ object Dictionary {
      * word only, not from the whole sentence. A word with no
      * entry here simply gets no next-word suggestion.
      */
+    /**
+     * Contraction expansion, code 21 (Wilson: add words with
+     * apostrophes like dont, im, and such, and dont put caps).
+     * Typed without an apostrophe, these are real shorthand
+     * forms, but they are also dictionary words in the 20k
+     * list (dont, cant, im, etc.), so Space used to leave
+     * them alone and they never became don't, can't, i'm.
+     * This map is checked BEFORE the isWord check in
+     * handleSpace / swipe / suggestion taps: a mapped word
+     * is always replaced with its apostrophe form, always
+     * lowercase, never capitalized — even at a sentence
+     * start, per Wilson's "dont put caps". Ambiguous forms
+     * are deliberately NOT here: lets (verb vs let's),
+     * its (possessive vs it's), ill (sick vs I'll),
+     * id (identification vs I'd) would be wrong too often.
+     */
+    val CONTRACTIONS: Map<String, String> = mapOf(
+        "dont" to "don't",
+        "cant" to "can't",
+        "wont" to "won't",
+        "isnt" to "isn't",
+        "didnt" to "didn't",
+        "doesnt" to "doesn't",
+        "couldnt" to "couldn't",
+        "shouldnt" to "shouldn't",
+        "wouldnt" to "wouldn't",
+        "havent" to "haven't",
+        "hasnt" to "hasn't",
+        "wasnt" to "wasn't",
+        "werent" to "weren't",
+        "im" to "i'm",
+        "ive" to "i've",
+        "theyre" to "they're",
+        "youre" to "you're",
+        "weve" to "we've",
+        "hes" to "he's",
+        "shes" to "she's",
+        "whats" to "what's",
+        "thats" to "that's",
+        "theres" to "there's",
+        "heres" to "here's"
+    )
+
     val BIGRAMS: Map<String, List<String>> = mapOf(
         "i" to listOf("am", "have", "think"),
         "you" to listOf("are", "have", "can"),
@@ -140,7 +183,6 @@ object Dictionary {
         "should" to listOf("be", "you", "we"),
         "let" to listOf("me", "us", "go"),
         "do" to listOf("you", "i", "not"),
-        "does" to listOf("it", "he", "she"),
         "did" to listOf("you", "he", "she"),
         "is" to listOf("a", "the", "not"),
         "are" to listOf("you", "we", "they"),
@@ -225,7 +267,43 @@ object Dictionary {
         "a" to listOf("lot", "few", "good"),
         "an" to listOf("hour", "idea", "old"),
         "no" to listOf("problem", "worries", "idea"),
-        "yes" to listOf("please", "sir", "maam")
+        "yes" to listOf("please", "sir", "maam"),
+        // Plural / singular agreement, code 21 (Wilson: add
+        // plural context to sentences). After a plural word,
+        // the next word must agree in number: these/those/
+        // they/we/you take are/have/were, not is/has/was;
+        // after two/many/few/several, the next word is a
+        // plural noun (days, years, things, people). After a
+        // singular word (this/that/he/she/it, a/an/one/each/
+        // every), the next word is singular: is/was/has, or
+        // a singular noun. Learned pairs still win over
+        // these generic entries, so his own sentences teach
+        // the keyboard his plurals first.
+        "these" to listOf("are", "were", "days"),
+        "those" to listOf("are", "were", "days"),
+        "two" to listOf("days", "years", "things"),
+        "three" to listOf("days", "years", "things"),
+        "many" to listOf("people", "things", "days"),
+        "few" to listOf("days", "things", "people"),
+        "several" to listOf("days", "years", "things"),
+        "all" to listOf("the", "people", "things"),
+        "some" to listOf("people", "things", "days"),
+        "both" to listOf("of", "are", "the"),
+        "other" to listOf("people", "things", "days"),
+        "each" to listOf("day", "time", "one"),
+        "every" to listOf("day", "time", "morning"),
+        "another" to listOf("day", "time", "one"),
+        "does" to listOf("it", "he", "she"),
+        "goes" to listOf("to", "home", "back"),
+        "wants" to listOf("to", "a", "me"),
+        "needs" to listOf("to", "a", "help"),
+        "likes" to listOf("to", "a", "this"),
+        "kids" to listOf("are", "have", "love"),
+        "friends" to listOf("are", "have", "and"),
+        "days" to listOf("ago", "later", "are"),
+        "years" to listOf("ago", "later", "old"),
+        "things" to listOf("are", "like", "to"),
+        "people" to listOf("are", "who", "say")
     )
 
     fun isWord(word: String): Boolean = activeWords.contains(word.lowercase())

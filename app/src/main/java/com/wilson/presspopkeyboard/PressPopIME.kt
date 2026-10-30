@@ -115,7 +115,7 @@ class PressPopIME : InputMethodService() {
     private var darkMode = false
     // Auto-capitalization for this field: on for plain text, off for
     // passwords, email addresses, URLs, numbers and phone fields.
-    private var autoCapitalize = true
+    private var autoCapitalize = false // Wilson, Oct 29, 2026: dont put caps — no sentence-start auto-capitalization. Manual Shift still works for a capital when he wants one.
 
     // Dark mode is read fresh every time the input view is created
     // or a new field starts — NOT just in onCreate(), where the
@@ -383,14 +383,17 @@ class PressPopIME : InputMethodService() {
                 InputType.TYPE_TEXT_VARIATION_PASSWORD ||
                 variation ==
                 InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-            val text = capitalizeForSentenceStart(word, 0) +
+            // Contraction expansion, code 21: a swiped
+            // "dont" becomes "don't", always lowercase.
+            val swipedWord = Dictionary.CONTRACTIONS[word.lowercase()] ?: word
+            val text = capitalizeForSentenceStart(swipedWord, 0) +
                 if (isPassword) "" else " "
             ic?.commitText(text, 1)
             if (keyboardView.shiftOn && !keyboardView.shiftLock) {
                 keyboardView.shiftOn = false
             }
-            recordCommittedWord(word)
-            personal.noteTyped(word)
+            recordCommittedWord(swipedWord)
+            personal.noteTyped(swipedWord)
             keyboardView.personalWords = personal.allPersonalWords()
             keyboardView.setTypedWord("")
             refreshSuggestions("")
@@ -785,8 +788,18 @@ class PressPopIME : InputMethodService() {
         var committedWordThisSpace: String? = null
 
         if (word.isNotEmpty()) {
-            // Autocorrect, unless the word is known, personal, or accented.
-            if (!Dictionary.isWord(word) && !personal.isPersonal(word) &&
+            // Contraction expansion, code 21, checked BEFORE
+            // the isWord check: "dont" IS a dictionary word,
+            // so without this it would be left alone and never
+            // become "don't". Always lowercase, never
+            // capitalized, per Wilson's "dont put caps".
+            val contraction = Dictionary.CONTRACTIONS[word.lowercase()]
+            if (contraction != null) {
+                ic.deleteSurroundingText(word.length, 0)
+                ic.commitText(contraction, 1)
+                lastCorrected = word to contraction
+                committedWordThisSpace = contraction
+            } else if (!Dictionary.isWord(word) && !personal.isPersonal(word) &&
                 word.all { it.code < 128 }
             ) {
                 val correction = Dictionary.bestCorrection(word, personal.allPersonalWords())
@@ -951,8 +964,11 @@ class PressPopIME : InputMethodService() {
             return
         }
         val word = keyboardView.typedWord
+        // Contraction expansion, code 21, for a tapped
+        // suggestion that is a no-apostrophe form.
+        val expandedSuggestion = Dictionary.CONTRACTIONS[suggestion.lowercase()] ?: suggestion
         // Capitalize before deleting, for the same reason as above.
-        val finalSuggestion = capitalizeForSentenceStart(suggestion, word.length)
+        val finalSuggestion = capitalizeForSentenceStart(expandedSuggestion, word.length)
         if (word.isNotEmpty()) {
             ic.deleteSurroundingText(word.length, 0)
         }
@@ -960,9 +976,9 @@ class PressPopIME : InputMethodService() {
         if (keyboardView.shiftOn && !keyboardView.shiftLock) {
             keyboardView.shiftOn = false
         }
-        recordCommittedWord(suggestion)
+        recordCommittedWord(expandedSuggestion)
         lastCorrected = null
-        keyboardView.setTypedWord(suggestion)
+        keyboardView.setTypedWord(expandedSuggestion)
         refreshSuggestions(suggestion)
     }
 
@@ -976,13 +992,11 @@ class PressPopIME : InputMethodService() {
         val inputType = info?.inputType ?: InputType.TYPE_CLASS_TEXT
         val fieldClass = inputType and InputType.TYPE_MASK_CLASS
         val variation = inputType and InputType.TYPE_MASK_VARIATION
-        autoCapitalize = fieldClass == InputType.TYPE_CLASS_TEXT &&
-            variation != InputType.TYPE_TEXT_VARIATION_PASSWORD &&
-            variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD &&
-            variation != InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS &&
-            variation != InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS &&
-            variation != InputType.TYPE_TEXT_VARIATION_URI &&
-            variation != InputType.TYPE_TEXT_VARIATION_FILTER
+        // Auto-capitalization is OFF, Wilson Oct 29, 2026:
+        // "Dont put caps." The field-based auto-cap that used
+        // to run here is replaced by false, so words stay
+        // lowercase unless he taps Shift himself.
+        autoCapitalize = false
         if (::keyboardView.isInitialized) {
             // Auto numpad, Oct 29, 2026 (Wilson): a PIN / number /
             // phone field used to open the full letter keyboard

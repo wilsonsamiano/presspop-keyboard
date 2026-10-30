@@ -101,8 +101,22 @@ android {
         // missing from the 20k list, so it flipped to
         // "defects" (Wilson's correction, Oct 29, 2026).
         // Grok must build this exact version, not bump it again.
-        versionCode = 20
-        versionName = "beta 0.1.19"
+        // Bumped Oct 29, 2026 (Wilson, code 20 not yet built:
+        // "Dont put caps. Add words with apostropes like
+        // dont, im, and such. Add plural ccontext to
+        // sentences."): (1) auto-capitalization OFF — no
+        // sentence-start caps, manual Shift still works.
+        // (2) Contraction expansion, always lowercase:
+        // dont->don't, im->i'm, cant, wont, isnt, etc.,
+        // checked before the isWord check, in Space, swipe
+        // and suggestion taps; he's/she's added to the
+        // dictionary. Ambiguous lets/its/ill/id NOT mapped.
+        // (3) Plural/singular agreement bigrams: these/
+        // those/two/many/few/several -> plural next words;
+        // this/that/he/she/it -> singular next words.
+        // Grok must build this exact version, not bump it again.
+        versionCode = 21
+        versionName = "beta 0.1.20"
     }
 
     signingConfigs {
