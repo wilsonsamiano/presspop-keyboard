@@ -6,9 +6,11 @@ import android.content.Context
  * The "personal keyboard": words the user actually types.
  *
  * - Manual words: added in the app's My Words screen, active at once.
- * - Learned words: an unknown word typed twice in real use is promoted
- *   to a personal word, so it stops being autocorrected away. A word
- *   typed only once is NOT learned, so a one-off typo does not stick.
+ * - Learned words: an unknown word typed at least seven times in real
+ *   use is promoted to a personal word, so it stops being
+ *   autocorrected away. A word typed fewer than seven times is NOT
+ *   learned, so a one-off typo does not stick. (Code 36, Wilson,
+ *   Oct 30, 2026: not just twice — at least seven times.)
  *
  * Stored only on the device, in SharedPreferences. Nothing is sent
  * anywhere. A personal word is never autocorrected, and it is offered
@@ -59,12 +61,12 @@ class PersonalDictionary(context: Context) {
         }
     }
 
-    /** Words learned from typing (count >= 2). */
+    /** Words learned from typing (count >= 7, code 36). */
     fun learnedWords(): Set<String> {
         val counts = prefs.getStringSet("counts", emptySet()) ?: emptySet()
         return counts.mapNotNull { entry ->
             val parts = entry.split(":")
-            if (parts.size == 2 && (parts[1].toIntOrNull() ?: 0) >= 2) parts[0] else null
+            if (parts.size == 2 && (parts[1].toIntOrNull() ?: 0) >= 7) parts[0] else null
         }.toSet()
     }
 
@@ -80,7 +82,7 @@ class PersonalDictionary(context: Context) {
         if (old != null) counts.remove(old)
         counts.add("$w:${oldCount + 1}")
         prefs.edit().putStringSet("counts", counts).apply()
-        return oldCount + 1 == 2
+        return oldCount + 1 == 7
     }
 
     fun isPersonal(word: String): Boolean = word.lowercase() in allPersonalWords()

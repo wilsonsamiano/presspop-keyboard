@@ -113,7 +113,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
-        android:text="My Words — personal words are never autocorrected and are suggested first. Words you type twice are also learned automatically."
+        android:text="My Words — personal words are never autocorrected and are suggested first. Words you type at least seven times are also learned automatically."
         android:textStyle="bold" />
 
     <TextView

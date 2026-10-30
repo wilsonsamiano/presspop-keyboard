@@ -357,8 +357,9 @@ class MainActivity : AppCompatActivity() {
         // words that I can remove them?"
         // Previously, no: this screen only
         // listed MANUAL words, while learned
-        // words (typed twice, or restored by
-        // undo) were stored on-device but
+        // words (typed at least seven times,
+        // or restored by undo) were stored
+        // on-device but
         // never shown, so a learned typo like
         // "thr" could not be found to remove
         // it. Now both lists are shown, and
