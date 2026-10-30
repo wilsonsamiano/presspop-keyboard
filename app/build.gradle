@@ -78,8 +78,18 @@ android {
         // a history item pastes the whole thing. History stays
         // at 20 items, newest first.
         // Grok must build this exact version, not bump it again.
-        versionCode = 18
-        versionName = "beta 0.1.17"
+        // Bumped Oct 29, 2026 (Wilson, code 18 test: hello swipe
+        // landed as "Hell", debug trace=hgftrertghjko match=her
+        // shape=hell path=710dp): shape scoring alone picked
+        // hell, a shorter h-e-l word, over hello even though
+        // the swipe lifted on o. Fix: lift-letter preference —
+        // if the best word ending on the lift key is within
+        // 30dp of the overall best, pick it (relaxed 60dp
+        // threshold for that pick, no hard last-letter gate).
+        // Debug line now also shows shapeScore in dp.
+        // Grok must build this exact version, not bump it again.
+        versionCode = 19
+        versionName = "beta 0.1.18"
     }
 
     signingConfigs {

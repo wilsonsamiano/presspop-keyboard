@@ -227,6 +227,12 @@ class KeyboardView @JvmOverloads constructor(
     // Swipe state
     private val swipePoints = mutableListOf<PointF>()
     private val visitedLetters = mutableListOf<String>()
+    // Last shape-match score, in dp, for the debug line. Set by
+    // shapeMatch() so the next debug line shows not just which
+    // word won, but by how much — otherwise a wrong winner like
+    // hell-over-hello cannot be told apart from a close call.
+    var lastShapeScoreDp: Int? = null
+        private set
     private var downPoint = PointF()
 
     // Space-cursor state
@@ -648,9 +654,34 @@ class KeyboardView @JvmOverloads constructor(
             }
         }
         if (startDist > dp(60f)) startLetter = null
+        // Lift-letter preference, Oct 29, 2026: the hello swipe
+        // that landed as "Hell" (debug: trace=hgftrertghjko,
+        // match=her, shape=hell, path=710dp, code 18) ended on
+        // o, but shape scoring alone picked hell — a shorter
+        // word sharing the h-e-l prefix, whose resampled path
+        // happens to sit closer to a wandering finger path.
+        // Where a swipe lifts is, like where it starts, one of
+        // its most reliable points, so it gets a say: if the
+        // best candidate ending on the lift key is within
+        // 30dp of the overall best, pick it instead. That fixes
+        // hell-over-hello without a hard last-letter gate,
+        // which would break words where the finger lifts early.
+        val lift = swipePoints.last()
+        var liftLetter: String? = null
+        var liftDist = Float.MAX_VALUE
+        for ((letter, center) in centers) {
+            val d = hypot(lift.x - center.x, lift.y - center.y)
+            if (d < liftDist) {
+                liftDist = d
+                liftLetter = letter
+            }
+        }
+        if (liftDist > dp(60f)) liftLetter = null
         val actual = resamplePath(swipePoints, 32)
         var best: String? = null
         var bestScore = Float.MAX_VALUE
+        var liftBest: String? = null
+        var liftBestScore = Float.MAX_VALUE
         val candidates = (personalWords + Dictionary.activeWords).distinct()
             .filter { startLetter == null || it.startsWith(startLetter) }
         for (cand in candidates) {
@@ -675,8 +706,24 @@ class KeyboardView @JvmOverloads constructor(
                 bestScore = score
                 best = cand
             }
+            if (liftLetter != null && cand.endsWith(liftLetter) && score < liftBestScore) {
+                liftBestScore = score
+                liftBest = cand
+            }
         }
-        return if (bestScore <= dp(45f)) best else null
+        var picked = best
+        var pickedScore = bestScore
+        if (liftLetter != null && liftBest != null && liftBest != best &&
+            liftBestScore <= bestScore + dp(30f) && liftBestScore <= dp(60f)
+        ) {
+            picked = liftBest
+            pickedScore = liftBestScore
+        }
+        lastShapeScoreDp = if (picked != null) {
+            (pickedScore / resources.displayMetrics.density).roundToInt()
+        } else null
+        val threshold = if (picked == liftBest && picked != best) dp(60f) else dp(45f)
+        return if (picked != null && pickedScore <= threshold) picked else null
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -891,6 +938,7 @@ class KeyboardView @JvmOverloads constructor(
                     showDebug(
                         "Swipe: trace=${debugTrace.ifEmpty { "(empty)" }} " +
                             "match=${debugMatch ?: "none"} shape=${debugShape ?: "none"} " +
+                            "shapeScore=${lastShapeScoreDp?.let { "${it}dp" } ?: "none"} " +
                             "swipe=$wasSwipe distinct=${tracedLetters.distinct().size} " +
                             "path=${debugPathDp}dp"
                     )
