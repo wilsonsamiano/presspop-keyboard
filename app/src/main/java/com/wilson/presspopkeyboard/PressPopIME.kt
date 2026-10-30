@@ -90,6 +90,8 @@ class PressPopIME : InputMethodService() {
         darkMode = settings.getBoolean("dark_mode", false)
         if (::keyboardView.isInitialized) {
             keyboardView.darkMode = darkMode
+            // Key pop sounds, on by default ("key_sounds", app toggle).
+            keyboardView.keySoundsOn = settings.getBoolean("key_sounds", true)
         }
         if (::strip.isInitialized) {
             strip.setBackgroundColor(
@@ -213,6 +215,21 @@ class PressPopIME : InputMethodService() {
                 setOnClickListener { onSuggestionTapped(index) }
                 strip.addView(this)
             }
+        }
+        // Microphone at the right end of the strip (top right), Oct
+        // 29, 2026 (Wilson): the bottom-row mic key is gone, and
+        // this replaces it — same voice input, just moved up here.
+        TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                (48 * resources.displayMetrics.density).toInt(),
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            text = "🎤"
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+            textSize = 20f
+            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setOnClickListener { handleVoice() }
+            strip.addView(this)
         }
 
         keyboardView.onWordChanged = { word -> refreshSuggestions(word) }

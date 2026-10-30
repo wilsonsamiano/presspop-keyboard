@@ -1,6 +1,8 @@
 package com.wilson.presspopkeyboard
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -100,6 +102,61 @@ class KeyboardView @JvmOverloads constructor(
             field = value
             invalidate()
         }
+
+    // Key tap pop sound, Oct 29, 2026 (Wilson: no sound at all before
+    // this — haptics only). A short synthesized pop in res/raw, played
+    // through SoundPool on every tap commit, so it sounds like a pop
+    // rather than the system click. On by default; the app's setting
+    // ("key_sounds") can turn it off, and PressPopIME refreshes this
+    // flag whenever the keyboard opens.
+    var keySoundsOn: Boolean = true
+    private var soundPool: SoundPool? = null
+    private var popSoundId: Int = 0
+    private var popLoaded: Boolean = false
+
+    private fun initPopSound() {
+        if (soundPool != null) return
+        try {
+            soundPool = SoundPool.Builder()
+                .setMaxStreams(4)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .build()
+            soundPool?.setOnLoadCompleteListener { _, sampleId, status ->
+                if (status == 0) {
+                    popSoundId = sampleId
+                    popLoaded = true
+                }
+            }
+            soundPool?.load(context, R.raw.key_pop, 1)
+        } catch (e: Exception) {
+            // No sound is better than a crash: haptics still work.
+            soundPool = null
+        }
+    }
+
+    private fun playKeySound() {
+        if (!keySoundsOn) return
+        try {
+            if (soundPool == null) initPopSound()
+            if (popLoaded && popSoundId != 0) {
+                soundPool?.play(popSoundId, 1f, 1f, 0, 0, 1f)
+            }
+        } catch (e: Exception) {
+            // Silent fallback: a sound failure must never break typing.
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        try { soundPool?.release() } catch (e: Exception) { }
+        soundPool = null
+        popLoaded = false
+        super.onDetachedFromWindow()
+    }
 
     /** Optional number row above the letter rows (off by default). */
     var showNumberRow: Boolean = false
@@ -266,10 +323,15 @@ class KeyboardView @JvmOverloads constructor(
                     listOf(Key("⌫", "⌫", KeyAction.DELETE, weight = 1.5f)),
                 listOf(
                     Key("123", "123", KeyAction.MODE, mode = KeyboardMode.NUMBERS, weight = 1.3f),
-                    emojiKey(),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
+                    // Oct 29, 2026 (Wilson): comma and emoji swapped,
+                    // and the mic moved off the bottom row to the top
+                    // strip — so the bottom row is now 123, comma,
+                    // emoji, space, period, enter. The mic's 0.8
+                    // weight went back to the spacebar, so the period
+                    // and enter keys end up exactly where they were.
                     Key(",", ",", KeyAction.CHAR, ",", weight = 1.0f),
-                    Key("space", "space", KeyAction.SPACE, weight = 3.2f),
+                    emojiKey(),
+                    Key("space", "space", KeyAction.SPACE, weight = 4.0f),
                     Key(".", ".", KeyAction.CHAR, ".", weight = 1.0f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.3f)
                 )
@@ -284,9 +346,8 @@ class KeyboardView @JvmOverloads constructor(
                 listOf(
                     Key("ABC", "ABC", KeyAction.MODE, mode = KeyboardMode.LETTERS, weight = 1.5f),
                     emojiKey(),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
                     Key("🔢", "🔢", KeyAction.MODE, mode = KeyboardMode.NUMPAD, weight = 1.0f),
-                    Key("space", "space", KeyAction.SPACE, weight = 2.4f),
+                    Key("space", "space", KeyAction.SPACE, weight = 3.2f),
                     Key(".", ".", KeyAction.CHAR, ".", weight = 1.0f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
                 )
@@ -302,8 +363,7 @@ class KeyboardView @JvmOverloads constructor(
                 listOf(
                     Key("ABC", "ABC", KeyAction.MODE, mode = KeyboardMode.LETTERS, weight = 1.5f),
                     emojiKey(),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
-                    Key("space", "space", KeyAction.SPACE, weight = 3.2f),
+                    Key("space", "space", KeyAction.SPACE, weight = 4.0f),
                     Key(".", ".", KeyAction.CHAR, ".", weight = 1.0f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
                 )
@@ -331,8 +391,7 @@ class KeyboardView @JvmOverloads constructor(
                 EMOJIS.subList(20, 30).map { Key(it, it, KeyAction.CHAR, it) },
                 listOf(
                     Key("ABC", "ABC", KeyAction.MODE, mode = KeyboardMode.LETTERS, weight = 1.5f),
-                    Key("space", "space", KeyAction.SPACE, weight = 3.0f),
-                    Key("🎤", "🎤", KeyAction.VOICE, weight = 0.8f),
+                    Key("space", "space", KeyAction.SPACE, weight = 3.8f),
                     Key("⌫", "⌫", KeyAction.DELETE, weight = 1.5f),
                     Key(".", ".", KeyAction.CHAR, ".", weight = 1.0f),
                     Key("⏎", "⏎", KeyAction.ENTER, weight = 1.5f)
@@ -675,6 +734,7 @@ class KeyboardView @JvmOverloads constructor(
                         noteTypedWordChange()
                     }
                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    playKeySound()
                     onKey?.invoke(variantKey)
                     return true
                 }
@@ -695,15 +755,20 @@ class KeyboardView @JvmOverloads constructor(
                         val match = Dictionary.bestSwipeMatch(traced, personalWords)
                         if (match != null) {
                             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            playKeySound()
                             onSwipeWord?.invoke(match)
                         } else if (traced.length <= 10) {
                             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            playKeySound()
                             onSwipeWord?.invoke(traced)
                         }
                     }
                     return true
                 }
                 if (key == null) return true
+                // One pop per tap commit, for every key type — the
+                // sound sits next to the haptics, not in each branch.
+                playKeySound()
                 when (key.action) {
                     KeyAction.SHIFT -> {
                         val now = SystemClock.uptimeMillis()

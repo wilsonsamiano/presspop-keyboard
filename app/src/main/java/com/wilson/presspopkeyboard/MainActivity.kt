@@ -274,6 +274,32 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
+        // Key tap pop sounds (on by default): a short pop on every
+        // key tap, with a toggle here. Takes effect the next time
+        // the keyboard opens.
+        val keySoundsButton = findViewById<Button>(R.id.keySoundsButton)
+        fun refreshKeySoundsLabel() {
+            val on = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+                .getBoolean("key_sounds", true)
+            keySoundsButton.text = if (on) {
+                "Key sounds: On (tap to turn off)"
+            } else {
+                "Key sounds: Off (tap to turn on)"
+            }
+        }
+        refreshKeySoundsLabel()
+        keySoundsButton.setOnClickListener {
+            val prefs = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+            val on = !prefs.getBoolean("key_sounds", true)
+            prefs.edit().putBoolean("key_sounds", on).apply()
+            refreshKeySoundsLabel()
+            Toast.makeText(
+                this,
+                if (on) "Key sounds on." else "Key sounds off.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
         val wordsText = findViewById<TextView>(R.id.wordsText)
         val wordInput = findViewById<EditText>(R.id.wordInput)
         fun refreshWords() {
