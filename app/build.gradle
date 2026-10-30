@@ -31,8 +31,8 @@ android {
         // is cached per process), so debug "did nothing" even when
         // On. Debug flag is now a file read fresh on every check.
         // Grok must build this exact version, not bump it again.
-        versionCode = 9
-        versionName = "beta 0.1.8"
+        versionCode = 10
+        versionName = "beta 0.1.9"
     }
 
     signingConfigs {

@@ -1,6 +1,7 @@
 package com.wilson.presspopkeyboard
 
 import android.content.Context
+import android.view.Gravity
 import android.widget.Toast
 
 /**
@@ -62,7 +63,17 @@ object DebugMode {
 
     fun toast(context: Context, message: String) {
         if (isOn(context)) {
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            // Top of screen, Oct 29, 2026: a default Toast sits at
+            // the BOTTOM of the screen, and the keyboard window
+            // covers that exact spot while typing — so the debug
+            // readouts were firing but hidden behind the keyboard
+            // (Wilson's video: the on/off confirmation Toast shows
+            // fine in settings with no keyboard, but nothing shows
+            // while typing in chat). The top of the screen is never
+            // covered by the keyboard, so put debug readouts there.
+            val toast = Toast.makeText(context, message, Toast.LENGTH_LONG)
+            toast.setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, 200)
+            toast.show()
         }
     }
 }
