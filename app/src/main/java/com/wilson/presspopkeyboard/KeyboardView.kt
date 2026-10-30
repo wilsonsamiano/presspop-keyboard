@@ -128,13 +128,14 @@ class KeyboardView @JvmOverloads constructor(
     }
 
     fun showDebug(message: String) {
+        // Popup REMOVED Oct 29, 2026 (Wilson): the banner was in
+        // the way while typing, and the "Copy last debug line"
+        // button in the app already captures the line, so no
+        // on-screen popup is needed at all. This just records the
+        // line for that button, and shows nothing. debugLine stays
+        // null, so layoutKeys() never shifts the keys for a banner.
         if (!DebugMode.isOn(context)) return
         DebugMode.record(message)
-        debugLine = message
-        removeCallbacks(clearDebug)
-        postDelayed(clearDebug, 5000)
-        layoutKeys()
-        invalidate()
     }
 
     private var soundPool: SoundPool? = null
@@ -572,6 +573,92 @@ class KeyboardView @JvmOverloads constructor(
         return total
     }
 
+    // Whole-path shape matching, Oct 29, 2026 (Wilson: letter-by-
+    // letter fixing would take years). The old matcher turned the
+    // finger path into a letter sequence and then looked that
+    // sequence up — so any key the finger crossed became a letter,
+    // and any intended key it missed broke the word. That is why
+    // "that" became "they" (the trace ended on y), "hello" became
+    // "hgfdghjklo" (e was never recorded), and "trying" became
+    // "trtyujnbhg" (i was never recorded). A working swipe keyboard
+    // does not do that: it compares the SHAPE of the whole path to
+    // the shape of each candidate word's key-center path. So this
+    // resamples both the actual path and each candidate's key-center
+    // path to 32 points and scores by mean distance between
+    // corresponding points. A wandering finger, a crossed key, or a
+    // missed key raises the distance a little, but does not destroy
+    // the match the way a wrong letter sequence does. Threshold
+    // 45dp: about two-thirds of a key width on this tablet.
+    private fun resamplePath(points: List<PointF>, n: Int): List<PointF> {
+        if (points.isEmpty()) return emptyList()
+        if (points.size == 1) return List(n) { points[0] }
+        var total = 0f
+        for (i in 1 until points.size) {
+            total += hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
+        }
+        if (total == 0f) return List(n) { points[0] }
+        val step = total / (n - 1)
+        val out = mutableListOf<PointF>()
+        out.add(points[0])
+        var dist = 0f
+        var idx = 1
+        while (out.size < n - 1 && idx < points.size) {
+            val seg = hypot(points[idx].x - points[idx - 1].x, points[idx].y - points[idx - 1].y)
+            if (dist + seg >= step * out.size) {
+                val need = step * out.size - dist
+                val ratio = if (seg == 0f) 0f else need / seg
+                out.add(PointF(
+                    points[idx - 1].x + (points[idx].x - points[idx - 1].x) * ratio,
+                    points[idx - 1].y + (points[idx].y - points[idx - 1].y) * ratio
+                ))
+            } else {
+                dist += seg
+                idx++
+            }
+        }
+        while (out.size < n) out.add(points.last())
+        return out
+    }
+
+    private fun shapeMatch(): String? {
+        if (swipePoints.size < 2) return null
+        val centers = mutableMapOf<String, PointF>()
+        for ((key, rect) in keyRects) {
+            if (key.action == KeyAction.CHAR && key.output.length == 1) {
+                centers.putIfAbsent(key.output.lowercase(), PointF(rect.centerX(), rect.centerY()))
+            }
+        }
+        if (centers.isEmpty()) return null
+        val actual = resamplePath(swipePoints, 32)
+        var best: String? = null
+        var bestScore = Float.MAX_VALUE
+        val candidates = (personalWords + Dictionary.activeWords).distinct()
+        for (cand in candidates) {
+            if (cand.length < 3) continue
+            val path = mutableListOf<PointF>()
+            var ok = true
+            for (c in cand.lowercase()) {
+                val center = centers[c.toString()]
+                if (center == null) { ok = false; break }
+                if (path.isEmpty() || hypot(center.x - path.last().x, center.y - path.last().y) > 1f) {
+                    path.add(center)
+                }
+            }
+            if (!ok || path.size < 2) continue
+            val candResampled = resamplePath(path, 32)
+            var score = 0f
+            for (i in actual.indices) {
+                score += hypot(actual[i].x - candResampled[i].x, actual[i].y - candResampled[i].y)
+            }
+            score /= actual.size
+            if (score < bestScore) {
+                bestScore = score
+                best = cand
+            }
+        }
+        return if (bestScore <= dp(45f)) best else null
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
@@ -771,6 +858,7 @@ class KeyboardView @JvmOverloads constructor(
                 val debugMatch = if (debugTrace.isNotEmpty()) {
                     Dictionary.bestSwipeMatch(debugTrace, personalWords)
                 } else null
+                val debugShape = if (wasSwipe) shapeMatch() else null
                 // Show this even when the trace is empty — that is
                 // the whole point of the debug tool. The old version
                 // only showed a popup when a trace existed, so when
@@ -782,7 +870,7 @@ class KeyboardView @JvmOverloads constructor(
                 if (debugPathDp > 20) {
                     showDebug(
                         "Swipe: trace=${debugTrace.ifEmpty { "(empty)" }} " +
-                            "match=${debugMatch ?: "none"} " +
+                            "match=${debugMatch ?: "none"} shape=${debugShape ?: "none"} " +
                             "swipe=$wasSwipe distinct=${tracedLetters.distinct().size} " +
                             "path=${debugPathDp}dp"
                     )
@@ -803,29 +891,25 @@ class KeyboardView @JvmOverloads constructor(
                     return true
                 }
                 if (wasSwipe) {
+                    // Shape first, letter-sequence second, garbage
+                    // never: the old short-trace fallback committed
+                    // the raw trace when nothing matched, which is
+                    // exactly how "hello" became "hgfdghjklo" and
+                    // "trying" became "trtyujnbhg" in the text field.
+                    // Now an unmatched swipe commits nothing at all —
+                    // garbage in the message is worse than nothing,
+                    // and the user can tap-type that word instead.
+                    // Swipe is one word at a time, and onSwipeWord
+                    // now adds the trailing space automatically.
                     val traced = tracedLetters.joinToString("")
-                    if (traced.isNotEmpty()) {
-                        // Old fallback committed the raw trace when no
-                        // dictionary word matched — that is exactly how
-                        // a swipe produced a long garbage string instead
-                        // of a word. Now: a real match commits, a short
-                        // trace (a plausible unknown word, e.g. a name)
-                        // commits as typed, and a long unmatched trace
-                        // commits nothing at all — garbage is worse
-                        // than nothing, and the user can tap-type it.
-                        // Swipe is also one word at a time: swiping a
-                        // whole phrase traces it as one long word, so
-                        // lift between words and tap Space separately.
-                        val match = Dictionary.bestSwipeMatch(traced, personalWords)
-                        if (match != null) {
-                            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                            playKeySound()
-                            onSwipeWord?.invoke(match)
-                        } else if (traced.length <= 10) {
-                            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                            playKeySound()
-                            onSwipeWord?.invoke(traced)
-                        }
+                    val match = debugShape
+                        ?: if (traced.isNotEmpty()) {
+                            Dictionary.bestSwipeMatch(traced, personalWords)
+                        } else null
+                    if (match != null) {
+                        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        playKeySound()
+                        onSwipeWord?.invoke(match)
                     }
                     return true
                 }

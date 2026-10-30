@@ -793,10 +793,12 @@ class PressPopIME : InputMethodService() {
     // banner as swipe readouts. Falls back to a Toast only if the
     // keyboard view is not ready yet.
     private fun showDebug(message: String) {
+        // No popup anywhere while typing, Oct 29, 2026 (Wilson):
+        // the line is only recorded for the app's Copy button.
         if (::keyboardView.isInitialized) {
             keyboardView.showDebug(message)
         } else {
-            DebugMode.toast(this, message)
+            DebugMode.record(message)
         }
     }
 

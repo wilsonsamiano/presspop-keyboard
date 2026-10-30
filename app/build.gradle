@@ -47,8 +47,21 @@ android {
         // fast swipe can no longer skip a key's letter — a
         // systematic fix for many words at once, not per-word.
         // Grok must build this exact version, not bump it again.
-        versionCode = 15
-        versionName = "beta 0.1.14"
+        // Bumped Oct 29, 2026 (Wilson, same batch): (3) swipe now
+        // matches the whole path SHAPE, not a letter sequence —
+        // the old matcher turned "that" into "they", "hello" into
+        // "hgfdghjklo" and "trying" into "trtyujnbhg", and an
+        // unmatched swipe no longer commits garbage at all;
+        // (4) the debug popup/banner is REMOVED — the Copy button
+        // already captures the line, so nothing pops up while
+        // typing; (5) dictionary expanded from ~700 to ~3,100
+        // words in one batch, so real words like better, remove
+        // and trying stop being "corrected" into letter, move
+        // and other wrong words — predictive completions use the
+        // same list, so they improve too.
+        // Grok must build this exact version, not bump it again.
+        versionCode = 16
+        versionName = "beta 0.1.15"
     }
 
     signingConfigs {
