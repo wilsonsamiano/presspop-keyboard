@@ -1084,6 +1084,12 @@ class PressPopIME : InputMethodService() {
             } else if (contraction != null) {
                 ic.deleteSurroundingText(word.length, 0)
                 ic.commitText(contraction, 1)
+                // Code 31: show the changed word in a
+                // bubble ABOVE the keyboard, like a
+                // tapped suggestion — not below the
+                // space bar, where Wilson saw the whole
+                // word popping on v30.
+                if (::strip.isInitialized) showSuggestionPopup(strip, contraction)
                 lastCorrected = word to contraction
                 committedWordThisSpace = contraction
             } else if (!Dictionary.isWord(word) && !personal.isPersonal(word) &&
@@ -1107,6 +1113,13 @@ class PressPopIME : InputMethodService() {
                     showDebug("Autocorrect: '$word' -> '$finalCorrection'")
                     ic.deleteSurroundingText(word.length, 0)
                     ic.commitText(finalCorrection, 1)
+                    // Code 31: autocorrect acknowledgement
+                    // — the whole corrected word pops in
+                    // a bubble above the keyboard (the
+                    // suggestion-popup window, anchored
+                    // to the strip), for 500ms, instead
+                    // of popping below the space bar.
+                    if (::strip.isInitialized) showSuggestionPopup(strip, finalCorrection)
                     lastCorrected = word to finalCorrection
                     committedWordThisSpace = finalCorrection
                     // Do NOT learn the typo as a personal word: a

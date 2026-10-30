@@ -14,9 +14,13 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.widget.PopupWindow
+import android.widget.TextView
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -240,6 +244,79 @@ class KeyboardView @JvmOverloads constructor(
     private var pressedKey: Key? = null
     private var pressedRect: RectF? = null
 
+    // Code 31 (Wilson, Oct 29, 2026): key popups are
+    // now their own PopupWindow, not canvas drawing.
+    // The canvas version had to clamp a top-row
+    // popup to the top edge of this view, so a top
+    // number-row key's popup landed ON the key
+    // itself, under the finger, which defeats the
+    // purpose. A PopupWindow sits above the key in
+    // screen space, over the strip / app area, so
+    // every row — including the top number row —
+    // pops visibly above the pressed key. It also
+    // removes itself cleanly on dismiss, so no
+    // ghost bubble is left over the strip.
+    private var keyPopup: PopupWindow? = null
+
+    private fun dismissKeyPopup() {
+        try { keyPopup?.dismiss() } catch (e: Exception) { }
+        keyPopup = null
+    }
+
+    private fun showKeyPopup() {
+        val key = pressedKey
+        val rect = pressedRect
+        if (key == null || rect == null || cursorMode || variantMode) {
+            dismissKeyPopup()
+            return
+        }
+        try {
+            dismissKeyPopup()
+            val density = resources.displayMetrics.density
+            val bubble = TextView(context).apply {
+                text = key.popupLabel
+                textSize =
+                    if (mode == KeyboardMode.EMOJI && key.action == KeyAction.CHAR) 44f else 32f
+                gravity = Gravity.CENTER
+                setSingleLine(true)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 10 * density
+                    setColor(
+                        if (darkMode) Color.parseColor("#374151")
+                        else Color.WHITE
+                    )
+                }
+                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            }
+            val popupW = maxOf(rect.width() * 1.25f, dp(56f))
+            val popupH = rect.height() * 1.45f + dp(12f)
+            val loc = IntArray(2)
+            getLocationOnScreen(loc)
+            val screenW = resources.displayMetrics.widthPixels
+            val x = (loc[0] + rect.centerX() - popupW / 2)
+                .coerceIn(0f, (screenW - popupW).coerceAtLeast(0f))
+            // Above the key, in screen space. Only
+            // if the key were at the very top of the
+            // screen (not a normal bottom keyboard)
+            // fall back to just below the key.
+            var y = loc[1] + rect.top - popupH - dp(4f)
+            if (y < 0) y = loc[1] + rect.bottom + dp(4f)
+            val popup = PopupWindow(
+                bubble, popupW.toInt(), popupH.toInt(), false
+            )
+            keyPopup = popup
+            popup.showAtLocation(this, Gravity.NO_GRAVITY, x.toInt(), y.toInt())
+        } catch (e: Exception) {
+            keyPopup = null
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        dismissKeyPopup()
+        super.onDetachedFromWindow()
+    }
+
     // Swipe state
     private val swipePoints = mutableListOf<PointF>()
     private val visitedLetters = mutableListOf<String>()
@@ -271,6 +348,7 @@ class KeyboardView @JvmOverloads constructor(
         if (base != null && base == pressedKey && base.action == KeyAction.CHAR) {
             val variants = ACCENTS[base.output.lowercase().firstOrNull()] ?: emptyList()
             if (variants.isNotEmpty()) {
+                dismissKeyPopup()
                 variantMode = true
                 variantBase = base
                 variantList = if (shiftOn) variants.map { it.uppercase() } else variants
@@ -316,6 +394,7 @@ class KeyboardView @JvmOverloads constructor(
     private var spaceHeld = false
     private val spaceCursorStart = Runnable {
         if (spaceHeld) {
+            dismissKeyPopup()
             cursorMode = true
             lastCursorX = downPoint.x
             lastCursorY = downPoint.y
@@ -926,6 +1005,7 @@ class KeyboardView @JvmOverloads constructor(
                 val hit = keyAt(event.x, event.y)
                 pressedKey = hit?.key
                 pressedRect = hit?.rect
+                showKeyPopup()
                 if (hit?.key?.action == KeyAction.SPACE) {
                     spaceHeld = true
                     lastCursorX = event.x
@@ -956,6 +1036,7 @@ class KeyboardView @JvmOverloads constructor(
                 ) {
                     variantMode = false
                     variantSelected = -1
+                    showKeyPopup()
                     invalidate()
                 }
                 if (variantMode) {
@@ -1066,6 +1147,7 @@ class KeyboardView @JvmOverloads constructor(
                 if (hit != null && hit.key != pressedKey) {
                     pressedKey = hit.key
                     pressedRect = hit.rect
+                    showKeyPopup()
                     if (hit.key.action == KeyAction.DELETE) {
                         deleteRepeating = true
                         handler.removeCallbacks(deleteRepeat)
@@ -1093,6 +1175,7 @@ class KeyboardView @JvmOverloads constructor(
                 variantMode = false
                 variantSelected = -1
                 val key = pressedKey
+                dismissKeyPopup()
                 pressedKey = null
                 pressedRect = null
                 val wasSwipe = mode == KeyboardMode.LETTERS &&
@@ -1359,33 +1442,11 @@ class KeyboardView @JvmOverloads constructor(
             }
         }
 
-        // Popup bubble above the pressed key - for EVERY key.
-        val key = pressedKey
-        val rect = pressedRect
-        if (key != null && rect != null && !cursorMode && !variantMode) {
-            val popupW = maxOf(rect.width() * 1.25f, dp(56f))
-            val popupH = rect.height() * 1.45f
-            val left = (rect.centerX() - popupW / 2).coerceIn(0f, width - popupW)
-            // Code 28 (Wilson, Oct 29, 2026): a top-row
-            // key's popup used to start above the top of
-            // this view, so Android clipped it away and
-            // top-row keys never seemed to pop up — it
-            // looked like the strip above the keyboard
-            // was covering them. Clamp the popup to the
-            // top edge instead, so it draws inside the
-            // keyboard, over the pressed key, and is
-            // actually visible for top-row keys too.
-            val popupTop = (rect.top - popupH - dp(4f)).coerceAtLeast(0f)
-            val popup = RectF(left, popupTop, left + popupW, popupTop + popupH + dp(12f))
-            popupPaint.color = if (darkMode) Color.parseColor("#374151") else Color.WHITE
-            canvas.drawRoundRect(popup, dp(10f), dp(10f), popupPaint)
-            popupTextPaint.color = if (darkMode) Color.WHITE else Color.BLACK
-            popupTextPaint.textSize =
-                if (mode == KeyboardMode.EMOJI && key.action == KeyAction.CHAR) dp(44f) else dp(32f)
-            val y = popup.top + popupH * 0.55f -
-                (popupTextPaint.descent() + popupTextPaint.ascent()) / 2
-            canvas.drawText(key.popupLabel, popup.centerX(), y, popupTextPaint)
-        }
+        // Code 31: key popups are no longer drawn
+        // here — see showKeyPopup(), a PopupWindow
+        // above the key in screen space, so top-row
+        // keys (including the number row) pop above
+        // the key instead of on top of it.
         // Space-cursor indicator.
         if (cursorMode) {
             textPaint.textSize = dp(14f)

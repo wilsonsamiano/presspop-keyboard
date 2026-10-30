@@ -125,8 +125,8 @@ android {
         // (password fields exempt), so a typo like
         // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
-        versionCode = 30
-        versionName = "beta 0.1.29"
+        versionCode = 31
+        versionName = "beta 0.1.30"
     }
 
     signingConfigs {
