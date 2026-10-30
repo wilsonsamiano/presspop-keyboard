@@ -110,6 +110,30 @@ class KeyboardView @JvmOverloads constructor(
     // ("key_sounds") can turn it off, and PressPopIME refreshes this
     // flag whenever the keyboard opens.
     var keySoundsOn: Boolean = true
+
+    // In-keyboard debug banner, Oct 29, 2026: Toast popups never
+    // showed on Wilson's onn tablet while typing — first hidden
+    // behind the keyboard (fixed by moving them to the top), then
+    // still nothing at all on code 10, even with debug on and the
+    // file-based flag in place. A Toast is a separate system
+    // window, so the keyboard cannot guarantee it appears. This
+    // banner is drawn inside the keyboard view itself, so if the
+    // keyboard is on screen, the debug line is on screen. It
+    // shows for 5 seconds, then clears itself.
+    private var debugLine: String? = null
+    private val clearDebug = Runnable {
+        debugLine = null
+        invalidate()
+    }
+
+    fun showDebug(message: String) {
+        if (!DebugMode.isOn(context)) return
+        debugLine = message
+        removeCallbacks(clearDebug)
+        postDelayed(clearDebug, 5000)
+        invalidate()
+    }
+
     private var soundPool: SoundPool? = null
     private var popSoundId: Int = 0
     private var popLoaded: Boolean = false
@@ -144,7 +168,11 @@ class KeyboardView @JvmOverloads constructor(
         try {
             if (soundPool == null) initPopSound()
             if (popLoaded && popSoundId != 0) {
-                soundPool?.play(popSoundId, 1f, 1f, 0, 0, 1f)
+                // Half volume, Oct 29, 2026: the first pop was a
+                // loud clipped tone at full volume and Wilson
+                // called it terrible. The wav is now a soft
+                // decaying sine, and it plays at 0.5, not 1.0.
+                soundPool?.play(popSoundId, 0.5f, 0.5f, 0, 0, 1f)
             }
         } catch (e: Exception) {
             // Silent fallback: a sound failure must never break typing.
@@ -715,8 +743,7 @@ class KeyboardView @JvmOverloads constructor(
                 // is itself the diagnosis: the finger moved, but no
                 // letters were recorded.
                 if (debugPathDp > 20) {
-                    DebugMode.toast(
-                        context,
+                    showDebug(
                         "Swipe: trace=${debugTrace.ifEmpty { "(empty)" }} " +
                             "match=${debugMatch ?: "none"} " +
                             "swipe=$wasSwipe distinct=${tracedLetters.distinct().size} " +
@@ -890,6 +917,27 @@ class KeyboardView @JvmOverloads constructor(
             ) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             val y = rect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
             canvas.drawText(key.label, rect.centerX(), y, textPaint)
+        }
+
+        // In-keyboard debug banner (see showDebug above).
+        if (debugLine != null) {
+            val bannerH = dp(30f)
+            val banner = RectF(0f, 0f, width.toFloat(), bannerH)
+            keyPaint.color = Color.parseColor("#111827")
+            canvas.drawRect(banner, keyPaint)
+            textPaint.color = Color.WHITE
+            textPaint.typeface = Typeface.DEFAULT
+            var size = dp(13f)
+            textPaint.textSize = size
+            while (size > dp(9f) &&
+                textPaint.measureText(debugLine!!) > width - dp(16f)
+            ) {
+                size -= dp(1f)
+                textPaint.textSize = size
+            }
+            val y = banner.centerY() -
+                (textPaint.descent() + textPaint.ascent()) / 2
+            canvas.drawText(debugLine!!, width / 2f, y, textPaint)
         }
 
         // Swipe trail.

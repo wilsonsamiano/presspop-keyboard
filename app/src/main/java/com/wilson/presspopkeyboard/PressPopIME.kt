@@ -735,7 +735,7 @@ class PressPopIME : InputMethodService() {
                 if (correction != null) {
                     val finalCorrection =
                         capitalizeForSentenceStart(correction, word.length)
-                    DebugMode.toast(this, "Autocorrect: '$word' -> '$finalCorrection'")
+                    showDebug("Autocorrect: '$word' -> '$finalCorrection'")
                     ic.deleteSurroundingText(word.length, 0)
                     ic.commitText(finalCorrection, 1)
                     lastCorrected = word to finalCorrection
@@ -744,11 +744,11 @@ class PressPopIME : InputMethodService() {
                     // keep, and learning it after two corrections
                     // would make autocorrect stop correcting it.
                 } else {
-                    DebugMode.toast(this, "Autocorrect: '$word' -> no correction (left as typed)")
+                    showDebug("Autocorrect: '$word' -> no correction (left as typed)")
                     personal.noteTyped(word)
                 }
             } else {
-                DebugMode.toast(this, "Autocorrect: '$word' left alone (known/personal word)")
+                showDebug("Autocorrect: '$word' left alone (known/personal word)")
                 personal.noteTyped(word)
             }
             keyboardView.personalWords = personal.allPersonalWords()
@@ -764,6 +764,20 @@ class PressPopIME : InputMethodService() {
         if (word.isNotEmpty()) {
             personal.noteTyped(word)
             keyboardView.personalWords = personal.allPersonalWords()
+        }
+    }
+
+    // Debug via the keyboard's own banner (KeyboardView.showDebug),
+    // Oct 29, 2026: Toasts never showed on Wilson's onn tablet
+    // while typing, even on code 10 with debug on, so autocorrect
+    // and suggestion readouts go through the same in-keyboard
+    // banner as swipe readouts. Falls back to a Toast only if the
+    // keyboard view is not ready yet.
+    private fun showDebug(message: String) {
+        if (::keyboardView.isInitialized) {
+            keyboardView.showDebug(message)
+        } else {
+            DebugMode.toast(this, message)
         }
     }
 
@@ -798,8 +812,7 @@ class PressPopIME : InputMethodService() {
         val view = suggestionViews.getOrNull(index) ?: return
         val suggestion = view.text.toString()
         if (suggestion.isEmpty()) return
-        DebugMode.toast(
-            this,
+        showDebug(
             "Suggestion tapped: '$suggestion' (typed was '${keyboardView.typedWord}')"
         )
         val corrected = lastCorrected

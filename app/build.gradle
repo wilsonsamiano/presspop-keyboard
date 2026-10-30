@@ -26,13 +26,14 @@ android {
         // covering swipe, autocorrect, and suggestion taps, so it
         // can stay in the app for customer support. Grok must build
         // this exact version, not bump it again locally.
-        // Bumped Oct 29, 2026: debug switch in the app did not reach
-        // the already-running keyboard service (SharedPreferences
-        // is cached per process), so debug "did nothing" even when
-        // On. Debug flag is now a file read fresh on every check.
-        // Grok must build this exact version, not bump it again.
-        versionCode = 10
-        versionName = "beta 0.1.9"
+        // Bumped Oct 29, 2026: on Wilson's onn tablet, Toast debug
+        // popups still never showed on code 10, and the first key
+        // pop sound was a loud clipped tone. Debug now draws as a
+        // banner inside the keyboard itself, and the pop is a soft
+        // decaying sine at half volume. Grok must build this exact
+        // version, not bump it again.
+        versionCode = 11
+        versionName = "beta 0.1.10"
     }
 
     signingConfigs {
