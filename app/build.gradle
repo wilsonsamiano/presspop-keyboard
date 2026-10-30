@@ -126,7 +126,7 @@ android {
         // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
         versionCode = 34
-        versionName = "beta 0.1.33"
+        versionName = "0.2.0"
     }
 
     signingConfigs {
