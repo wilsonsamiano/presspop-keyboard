@@ -6,7 +6,14 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.inputmethodservice.InputMethodService
+import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
+import android.util.Size
+import android.view.inputmethod.InlineSuggestionsRequest
+import android.view.inputmethod.InlineSuggestionsResponse
+import android.widget.inline.InlinePresentationSpec
+import androidx.annotation.RequiresApi
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
@@ -62,6 +69,16 @@ class PressPopIME : InputMethodService() {
     private lateinit var voice: VoiceInput
     private lateinit var suggestionViews: List<TextView>
     private lateinit var strip: LinearLayout
+    // Inline autofill row, code 27: a separate row ABOVE the
+    // suggestion strip, holding views inflated by the
+    // user's autofill service (Google Password Manager,
+    // 1Password, Bitwarden, etc. — whichever the user
+    // picked in Android Settings). It is deliberately
+    // NOT part of the suggestion strip, so code 26's
+    // "blank the strip in password fields" rule does
+    // not blank autofill, and PressPop's own dictionary
+    // suggestions never mix with autofill suggestions.
+    private lateinit var autofillRow: LinearLayout
     private lateinit var clipboardPanel: LinearLayout
     private lateinit var gifPanel: LinearLayout
     private lateinit var gifQueryText: TextView
@@ -293,6 +310,15 @@ class PressPopIME : InputMethodService() {
         keyboardView.showNumberRow = settings.getBoolean("number_row", false)
         keyboardView.personalWords = personal.allPersonalWords()
 
+        autofillRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(if (darkMode) Color.parseColor("#111827") else Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (56 * resources.displayMetrics.density).toInt()
+            )
+            visibility = View.GONE
+        }
         strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(if (darkMode) Color.parseColor("#111827") else Color.WHITE)
@@ -598,6 +624,7 @@ class PressPopIME : InputMethodService() {
 
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(autofillRow)
             addView(strip)
             addView(clipboardPanel)
             addView(gifPanel)
@@ -1294,6 +1321,99 @@ class PressPopIME : InputMethodService() {
         refreshSuggestions("")
     }
 
+    // Inline autofill, code 27 (Wilson: "Add the Google
+    // password manager integration"). Android 11+ only
+    // (API 30+); on older Android the system simply
+    // falls back to its menu, and this code never runs.
+    // How it works, and what it does NOT do:
+    // - PressPop tells Android it can show inline
+    //   suggestions (method.xml supportsInlineSuggestions).
+    // - When the user focuses a login field, Android
+    //   asks PressPop for a request, then asks the
+    //   USER'S chosen autofill service (Google Password
+    //   Manager if that is what he picked in Android
+    //   Settings > Passwords, passkeys & autofill) for
+    //   suggestions. PressPop has no Google-specific
+    //   code and no password vault of its own.
+    // - The suggestions arrive as opaque views inflated
+    //   by the autofill service. PressPop cannot read
+    //   their text, cannot log them, cannot learn them,
+    //   and cannot send them anywhere — Android hides
+    //   the content from the IME until the user taps
+    //   one, at which point Android itself fills the
+    //   field. That is the whole security model, and
+    //   it is why this is safe to add to a keyboard.
+    // - If no autofill service is selected, or the
+    //   service has no login for this app/site, Android
+    //   sends nothing and the row stays hidden.
+    private fun clearAutofillRow() {
+        if (::autofillRow.isInitialized) {
+            autofillRow.removeAllViews()
+            autofillRow.visibility = View.GONE
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle?): InlineSuggestionsRequest? {
+        val density = resources.displayMetrics.density
+        val rowHeightPx = (56 * density).toInt()
+        val screenWidthPx = resources.displayMetrics.widthPixels
+        val spec = InlinePresentationSpec.Builder(
+            Size(100, rowHeightPx),
+            Size(screenWidthPx, rowHeightPx)
+        ).build()
+        return InlineSuggestionsRequest.Builder(listOf(spec))
+            .setMaxSuggestionCount(3)
+            .build()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
+        if (!::autofillRow.isInitialized) return false
+        val suggestions = response.inlineSuggestions
+        if (suggestions.isEmpty()) {
+            clearAutofillRow()
+            return true
+        }
+        autofillRow.removeAllViews()
+        autofillRow.visibility = View.VISIBLE
+        val density = resources.displayMetrics.density
+        val rowHeightPx = (56 * density).toInt()
+        val screenWidthPx = resources.displayMetrics.widthPixels
+        for (suggestion in suggestions) {
+            try {
+                suggestion.inflate(
+                    this,
+                    Size(screenWidthPx, rowHeightPx),
+                    mainExecutor
+                ) { inlineContentView ->
+                    // The inflated view belongs to the
+                    // autofill service. PressPop only
+                    // hosts it — it does not read, log,
+                    // or modify its content, and tapping
+                    // it is handled by Android/autofill.
+                    val view = inlineContentView.view
+                    view.layoutParams = LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+                    )
+                    autofillRow.addView(view)
+                }
+            } catch (e: Exception) {
+                // One bad suggestion must not kill the
+                // row for the others, and must never
+                // crash the keyboard.
+            }
+        }
+        return true
+    }
+
+    override fun onFinishInput() {
+        super.onFinishInput()
+        // Never leave one field's autofill suggestions
+        // showing in the next field/app.
+        clearAutofillRow()
+    }
+
     override fun onStartInputView(
         info: android.view.inputmethod.EditorInfo?,
         restarting: Boolean
@@ -1316,6 +1436,7 @@ class PressPopIME : InputMethodService() {
             variation != InputType.TYPE_TEXT_VARIATION_URI &&
             variation != InputType.TYPE_TEXT_VARIATION_FILTER
         if (::keyboardView.isInitialized) {
+            clearAutofillRow()
             keyboardView.suppressDebug = isPasswordField()
             // Auto numpad, Oct 29, 2026 (Wilson): a PIN / number /
             // phone field used to open the full letter keyboard
