@@ -1338,7 +1338,10 @@ class KeyboardView @JvmOverloads constructor(
             val variantW = rect.width()
             val totalW = variantW * variantList.size
             val startX = (rect.centerX() - totalW / 2).coerceIn(0f, width - totalW)
-            val top = rect.top - rect.height() - dp(10f)
+            // Code 28: clamp to the top of the keyboard
+            // view, or a top-row key's picker is drawn
+            // off-screen and never shows.
+            val top = (rect.top - rect.height() - dp(10f)).coerceAtLeast(0f)
             for ((i, variant) in variantList.withIndex()) {
                 val vRect = RectF(
                     startX + i * variantW, top,
@@ -1363,7 +1366,17 @@ class KeyboardView @JvmOverloads constructor(
             val popupW = maxOf(rect.width() * 1.25f, dp(56f))
             val popupH = rect.height() * 1.45f
             val left = (rect.centerX() - popupW / 2).coerceIn(0f, width - popupW)
-            val popup = RectF(left, rect.top - popupH - dp(4f), left + popupW, rect.top + dp(8f))
+            // Code 28 (Wilson, Oct 29, 2026): a top-row
+            // key's popup used to start above the top of
+            // this view, so Android clipped it away and
+            // top-row keys never seemed to pop up — it
+            // looked like the strip above the keyboard
+            // was covering them. Clamp the popup to the
+            // top edge instead, so it draws inside the
+            // keyboard, over the pressed key, and is
+            // actually visible for top-row keys too.
+            val popupTop = (rect.top - popupH - dp(4f)).coerceAtLeast(0f)
+            val popup = RectF(left, popupTop, left + popupW, popupTop + popupH + dp(12f))
             popupPaint.color = if (darkMode) Color.parseColor("#374151") else Color.WHITE
             canvas.drawRoundRect(popup, dp(10f), dp(10f), popupPaint)
             popupTextPaint.color = if (darkMode) Color.WHITE else Color.BLACK

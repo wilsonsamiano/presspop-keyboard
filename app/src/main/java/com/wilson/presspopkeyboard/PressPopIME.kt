@@ -1161,9 +1161,26 @@ class PressPopIME : InputMethodService() {
             // field — no completions, no next-word
             // predictions, no undo left slot either, since
             // that slot would show a word from the field.
+            // Code 28 (Wilson, Oct 29, 2026): blanking the
+            // texts was not enough — the strip itself
+            // stayed visible as an empty black bar above
+            // the keys while typing a PIN, so hide the
+            // whole strip (and any open panels) in a
+            // password field instead. The autofill row
+            // is separate and is NOT hidden here: on a
+            // login password field it still shows the
+            // user's chosen autofill service's login,
+            // and on a PIN field it stays hidden because
+            // no autofill response arrives.
             suggestionViews.forEach { it.text = "" }
+            strip.visibility = View.GONE
+            if (::clipboardPanel.isInitialized) clipboardPanel.visibility = View.GONE
+            if (::gifPanel.isInitialized) gifPanel.visibility = View.GONE
             return
         }
+        // Normal field: the strip is back, even if the
+        // previous field was a password field.
+        strip.visibility = View.VISIBLE
         val personalWords = personal.allPersonalWords()
         // Next-word prediction, code 20: when no word is being
         // typed (right after a Space or a swiped word), the
