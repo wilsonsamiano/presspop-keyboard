@@ -91,7 +91,7 @@ class PressPopIME : InputMethodService() {
         }
         lastCommittedWord = w
         committedHistory.add(w)
-        if (committedHistory.size > 2) committedHistory.removeAt(0)
+        if (committedHistory.size > 4) committedHistory.removeAt(0)
     }
 
     // Previous word before the cursor, for next-word
@@ -134,6 +134,29 @@ class PressPopIME : InputMethodService() {
         val prev = committedHistory.lastOrNull() ?: ""
         val prevPrev = if (committedHistory.size >= 2) committedHistory[committedHistory.size - 2] else ""
         return prevPrev to prev
+    }
+
+    // Last up to 4 words before the cursor, for the
+    // n-gram model (code 23). Same sentence-start
+    // guard as lastTwoWordsBeforeCursor.
+    private fun lastWordsBeforeCursor(): List<String> {
+        val ic = currentInputConnection
+        if (ic != null) {
+            try {
+                val before = ic.getTextBeforeCursor(120, 0)?.toString() ?: ""
+                val trimmed = before.trimEnd()
+                if (trimmed.isEmpty() || trimmed.endsWith("\n") ||
+                    trimmed.endsWith(".") || trimmed.endsWith("?") || trimmed.endsWith("!")
+                ) {
+                    return emptyList()
+                }
+                val words = Regex("[A-Za-z']+").findAll(before).map { it.value.lowercase() }.toList()
+                if (words.isNotEmpty()) return words.takeLast(4)
+            } catch (e: Exception) {
+                // Fall through to committed history.
+            }
+        }
+        return committedHistory.toList()
     }
     private var darkMode = false
     // Auto-capitalization for this field: on for plain text, off for
@@ -208,6 +231,7 @@ class PressPopIME : InputMethodService() {
     }
 
     override fun onCreateInputView(): View {
+        NgramModel.ensureLoaded(this)
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         keyboardView = KeyboardView(this)
         refreshDarkMode()
@@ -948,7 +972,13 @@ class PressPopIME : InputMethodService() {
                 val trigram = if (prevPrev.isNotEmpty()) {
                     Dictionary.TRIGRAMS["$prevPrev $prev"] ?: emptyList()
                 } else emptyList()
-                (personal.learnedNextWords(prev) + trigram + (Dictionary.BIGRAMS[prev] ?: emptyList()))
+                // Code 23 order: learned pairs first, then
+                // the bigger n-gram model, then trigram,
+                // then bigram. The n-gram model reads the
+                // last 4 words, so it wins over a 2-word
+                // phrase where both exist.
+                val ngram = NgramModel.nextWords(lastWordsBeforeCursor())
+                (personal.learnedNextWords(prev) + ngram + trigram + (Dictionary.BIGRAMS[prev] ?: emptyList()))
                     .distinct().take(2)
             } else emptyList()
         } else emptyList()

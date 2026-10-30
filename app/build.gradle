@@ -125,8 +125,8 @@ android {
         // (password fields exempt), so a typo like
         // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
-        versionCode = 22
-        versionName = "beta 0.1.21"
+        versionCode = 23
+        versionName = "beta 0.1.22"
     }
 
     signingConfigs {
@@ -170,3 +170,11 @@ dependencies {
 // are no longer capped at 500 — the cap is removed, so
 // his own sentence habits are never thrown away. No
 // other feature changes from code 21.
+
+// Code 23, Oct 29, 2026 (Wilson): bigger on-device
+// sentence model — pruned 4-gram / 5-gram table in
+// assets/ngram_model.txt (131,304 contexts, 3,946,959
+// bytes, built from WikiText-2 + Samsum +
+// EmpatheticDialogues, conversational first).
+// Prediction order: learned pairs, then n-gram,
+// then trigram, then bigram. No other changes.
