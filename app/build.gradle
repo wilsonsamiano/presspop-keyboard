@@ -125,8 +125,8 @@ android {
         // (password fields exempt), so a typo like
         // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
-        versionCode = 28
-        versionName = "beta 0.1.27"
+        versionCode = 29
+        versionName = "beta 0.1.28"
     }
 
     signingConfigs {
@@ -164,6 +164,11 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // Code 29: androidx autofill inline library, for the
+    // InlinePresentationSpec style bundle only (see
+    // onCreateInlineSuggestionsRequest). Without it the
+    // system renderer refuses to draw an autofill chip.
+    implementation("androidx.autofill:autofill:1.1.0")
 }
 
 // Code 22, Oct 29, 2026 (Wilson): learned next-word pairs

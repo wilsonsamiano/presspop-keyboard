@@ -8,7 +8,13 @@ import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.graphics.drawable.GradientDrawable
+import android.widget.PopupWindow
+import androidx.autofill.inline.UiVersions
+import androidx.autofill.inline.v1.InlineSuggestionUi
 import android.util.Size
 import android.view.inputmethod.InlineSuggestionsRequest
 import android.view.inputmethod.InlineSuggestionsResponse
@@ -69,6 +75,10 @@ class PressPopIME : InputMethodService() {
     private lateinit var voice: VoiceInput
     private lateinit var suggestionViews: List<TextView>
     private lateinit var strip: LinearLayout
+    // Suggestion-tap popup, code 29: the one live
+    // PopupWindow for the tapped-word bubble, so rapid
+    // taps replace it instead of stacking bubbles.
+    private var suggestionPopup: PopupWindow? = null
     // Inline autofill row, code 27: a separate row ABOVE the
     // suggestion strip, holding views inflated by the
     // user's autofill service (Google Password Manager,
@@ -1227,6 +1237,85 @@ class PressPopIME : InputMethodService() {
         }
     }
 
+    // Suggestion-tap popup, code 29 (Wilson, Oct 29,
+    // 2026): tapping a predictive word must pop out
+    // like a letter key, so the tap itself is
+    // acknowledged. A letter key's popup is drawn in
+    // KeyboardView's canvas, but the strip sits in a
+    // different view above it, so a strip popup cannot
+    // be drawn there — it needs its own window. This
+    // uses a PopupWindow, the same mechanism keyboards
+    // normally use for popups, anchored to the tapped
+    // suggestion slot and shown just above the strip,
+    // in the same colours as a letter-key popup
+    // (#374151 dark / white light, rounded corners).
+    // The word shown is the word actually committed
+    // to the text (after any capitalisation or rank
+    // casing), not just the strip text. The bubble
+    // lasts 500ms and does not delay the commit: the
+    // word is already in the text when it appears,
+    // and the bubble never takes focus or intercepts
+    // touches, so typing straight on is unaffected.
+    private fun showSuggestionPopup(anchor: View, word: String) {
+        if (word.isEmpty()) return
+        try {
+            suggestionPopup?.dismiss()
+            val density = resources.displayMetrics.density
+            val bubble = TextView(this).apply {
+                text = word
+                textSize = 22f
+                setSingleLine(true)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (24 * density).toInt(),
+                    (16 * density).toInt(),
+                    (24 * density).toInt(),
+                    (16 * density).toInt()
+                )
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 10 * density
+                    setColor(
+                        if (darkMode) Color.parseColor("#374151")
+                        else Color.WHITE
+                    )
+                }
+                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            }
+            bubble.measure(
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val popupW = bubble.measuredWidth
+            val popupH = bubble.measuredHeight
+            val loc = IntArray(2)
+            anchor.getLocationOnScreen(loc)
+            val screenW = resources.displayMetrics.widthPixels
+            val x = (loc[0] + anchor.width / 2 - popupW / 2)
+                .coerceIn(0, (screenW - popupW).coerceAtLeast(0))
+            // Above the strip if there is room, otherwise
+            // just below it, over the keys — never off
+            // the top of the screen.
+            val yAbove = loc[1] - popupH - (8 * density).toInt()
+            val y = if (yAbove >= 0) yAbove
+                else loc[1] + anchor.height + (8 * density).toInt()
+            val popup = PopupWindow(
+                bubble, popupW, popupH, false
+            )
+            suggestionPopup = popup
+            popup.showAtLocation(anchor, Gravity.NO_GRAVITY, x, y)
+            Handler(Looper.getMainLooper()).postDelayed(
+                { if (suggestionPopup == popup) suggestionPopup = null
+                  popup.dismiss() },
+                500
+            )
+        } catch (e: Exception) {
+            // A popup must never break a tap: if it
+            // cannot show, the word is still committed.
+            suggestionPopup = null
+        }
+    }
+
     private fun onSuggestionTapped(index: Int) {
         if (isPasswordField()) return
         val ic = currentInputConnection ?: return
@@ -1281,6 +1370,7 @@ class PressPopIME : InputMethodService() {
             lastCorrected = null
             keyboardView.setTypedWord("")
             refreshSuggestions("")
+            showSuggestionPopup(view, restored)
             return
         }
         // Next-word tap, code 20: no word is being typed, so
@@ -1303,6 +1393,7 @@ class PressPopIME : InputMethodService() {
             lastCorrected = null
             keyboardView.setTypedWord("")
             refreshSuggestions("")
+            showSuggestionPopup(view, nextWord)
             updateAutoShift()
             return
         }
@@ -1336,6 +1427,7 @@ class PressPopIME : InputMethodService() {
         lastCorrected = null
         keyboardView.setTypedWord("")
         refreshSuggestions("")
+        showSuggestionPopup(view, finalSuggestion)
     }
 
     // Inline autofill, code 27 (Wilson: "Add the Google
@@ -1375,10 +1467,30 @@ class PressPopIME : InputMethodService() {
         val density = resources.displayMetrics.density
         val rowHeightPx = (56 * density).toInt()
         val screenWidthPx = resources.displayMetrics.widthPixels
+        // Code 29: style bundle, REQUIRED. Grok's v27
+        // smoke test (code 27, commit a9024d29) proved
+        // the request itself was valid (max 3, 56dp row),
+        // but the system renderer refused to draw the
+        // chip because this spec's style bundle was
+        // empty — Android's docs say "The style must be
+        // set for the suggestion to render properly."
+        // The documented default-style route is used
+        // here: UiVersions.newStylesBuilder() plus one
+        // default InlineSuggestionUi style, no custom
+        // colours or icons, so the autofill service's
+        // chip renders with its default theme. This is
+        // the only change needed for a saved login to
+        // actually show in the row and fill on tap;
+        // without it, a real Google chip would hit the
+        // same empty-style refusal as the local test
+        // service did.
+        val stylesBuilder = UiVersions.newStylesBuilder()
+        stylesBuilder.addStyle(InlineSuggestionUi.newStyleBuilder().build())
         val spec = InlinePresentationSpec.Builder(
             Size(100, rowHeightPx),
             Size(screenWidthPx, rowHeightPx)
-        ).build()
+        ).setStyle(stylesBuilder.build())
+            .build()
         return InlineSuggestionsRequest.Builder(listOf(spec))
             .setMaxSuggestionCount(3)
             .build()
