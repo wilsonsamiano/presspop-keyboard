@@ -962,19 +962,33 @@ class KeyboardView @JvmOverloads constructor(
         for (i in activeList.indices) {
             if (!freqRank.containsKey(activeList[i])) freqRank[activeList[i]] = i
         }
-        val personalSet = personalWords.toSet()
+        // Code 37: personal words keep their casing
+        // ("Angel"), so compare lowercased here;
+        // the scored word itself keeps its form.
+        val personalSet = personalWords.map { it.lowercase() }.toSet()
         val prev = previousWord.lowercase()
         val bigramNext = if (prev.isNotEmpty()) Dictionary.BIGRAMS[prev] ?: emptyList() else emptyList()
         data class Scored(val word: String, val geometry: Float, val rescore: Float)
         fun scoreCandidates(allowedStarts: Set<String>?): List<Scored> {
             val out = mutableListOf<Scored>()
-            val candidates = (personalWords + Dictionary.activeWords).distinct()
-                .filter { allowedStarts == null || it.isNotEmpty() && it[0].toString() in allowedStarts }
+            // Personal first, deduped by lowercase, so
+            // "Angel" wins over a duplicate "angel".
+            val candidates = (personalWords + Dictionary.activeWords).distinctBy { it.lowercase() }
+                .filter { allowedStarts == null || it.isNotEmpty() && it.lowercase()[0].toString() in allowedStarts }
             for (cand in candidates) {
                 if (cand.length < 2) continue
                 val path = mutableListOf<PointF>()
                 var ok = true
+                // Code 37: apostrophes have no key on
+                // the letters layout, so a candidate
+                // like "we'll" must not fail here.
+                // Skip non-letters in the template:
+                // "we'll" then templates as w-e-l-l,
+                // exactly the trace a user swipes,
+                // and can compete with "well" on
+                // geometry, frequency, and bigram.
                 for (c in cand.lowercase()) {
+                    if (!c.isLetter()) continue
                     val center = centers[c.toString()]
                     if (center == null) { ok = false; break }
                     if (path.isEmpty() || hypot(center.x - path.last().x, center.y - path.last().y) > 1f) {

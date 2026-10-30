@@ -1,4 +1,6 @@
-# PressPop Keyboard
+# SafePop Keyboard
+
+Display name as of code 37; package, class names, and repo name stay PressPop so installs keep their dictionary.
 
 > Renamed Oct 29, 2026 from KeyPop Keyboard — the KeyPop name was already
 > in use by other keyboards (keypop.co, App Store "Keypop: Keycap Keyboard
@@ -143,9 +145,9 @@ dictionary). Those are later features, not v5 bugs.
 
 ## Install and enable (after you install the APK)
 
-1. Open the PressPop Keyboard app.
-2. Tap "Enable keyboard", then turn on PressPop Keyboard.
-3. Tap "Switch keyboard", then pick PressPop.
+1. Open the SafePop Keyboard app.
+2. Tap "Enable keyboard", then turn on SafePop Keyboard.
+3. Tap "Switch keyboard", then pick SafePop.
 4. Open any text field and type.
 
 ## Build (copy-paste steps for Grok Build)

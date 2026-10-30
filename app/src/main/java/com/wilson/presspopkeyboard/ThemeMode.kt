@@ -4,6 +4,7 @@ import android.app.UiModeManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
+import android.content.res.Resources
 import androidx.appcompat.app.AppCompatDelegate
 
 /**
@@ -70,6 +71,24 @@ object ThemeMode {
                 // back to the resources check, since
                 // AUTO means the system itself decides
                 // by time / configuration.
+                // Code 37 (Wilson, Oct 30, 2026):
+                // System was still stuck dark on a
+                // light device with automatic dark
+                // at night. That device setting
+                // makes UiModeManager report AUTO,
+                // not YES or NO, so the code 35
+                // fallback read the app's own
+                // resources — which AppCompat's
+                // earlier Dark setting had left
+                // stuck at NIGHT_YES for the whole
+                // process. Never fall back to the
+                // app's own resources for System
+                // mode. Resources.getSystem() is
+                // the system's own resources,
+                // untouched by AppCompat, so it
+                // reports the true current state:
+                // light in the daytime, dark at
+                // night under Automatic.
                 try {
                     val uiModeManager = context.getSystemService(
                         Context.UI_MODE_SERVICE
@@ -77,12 +96,12 @@ object ThemeMode {
                     when (uiModeManager?.nightMode) {
                         UiModeManager.MODE_NIGHT_YES -> true
                         UiModeManager.MODE_NIGHT_NO -> false
-                        else -> (context.resources.configuration.uiMode and
+                        else -> (Resources.getSystem().configuration.uiMode and
                             Configuration.UI_MODE_NIGHT_MASK) ==
                             Configuration.UI_MODE_NIGHT_YES
                     }
                 } catch (e: Exception) {
-                    (context.resources.configuration.uiMode and
+                    (Resources.getSystem().configuration.uiMode and
                         Configuration.UI_MODE_NIGHT_MASK) ==
                         Configuration.UI_MODE_NIGHT_YES
                 }

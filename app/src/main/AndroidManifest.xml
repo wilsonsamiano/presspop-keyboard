@@ -11,7 +11,7 @@
     <application
         android:name=".PressPopApp"
         android:allowBackup="true"
-        android:label="PressPop Keyboard"
+        android:label="SafePop Keyboard"
         android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
 
         <activity
@@ -36,7 +36,7 @@
         <service
             android:name=".PressPopIME"
             android:exported="true"
-            android:label="PressPop Keyboard"
+            android:label="SafePop Keyboard"
             android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />

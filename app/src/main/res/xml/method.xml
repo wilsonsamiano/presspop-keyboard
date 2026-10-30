@@ -3,5 +3,5 @@
     android:supportsInlineSuggestions="true">
     <subtype
         android:imeSubtypeMode="keyboard"
-        android:label="PressPop Keyboard" />
+        android:label="SafePop Keyboard" />
 </input-method>

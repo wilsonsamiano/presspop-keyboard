@@ -13,7 +13,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="PressPop Keyboard"
+        android:text="SafePop Keyboard"
         android:textSize="26sp"
         android:textStyle="bold" />
 
@@ -28,7 +28,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="1. Tap Enable, then turn on PressPop Keyboard.\n2. Tap Switch keyboard, then pick PressPop.\n3. Open any text field and type - every key pops up, space included." />
+        android:text="1. Tap Enable, then turn on SafePop Keyboard.\n2. Tap Switch keyboard, then pick SafePop.\n3. Open any text field and type - every key pops up, space included." />
 
     <Button
         android:id="@+id/enableButton"

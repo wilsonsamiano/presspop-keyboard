@@ -92,7 +92,7 @@ object UpdateChecker {
                 activity.runOnUiThread {
                     if (latestCode > currentCode) {
                         AlertDialog.Builder(activity)
-                            .setTitle("PressPop update available: $tag")
+                            .setTitle("SafePop update available: $tag")
                             .setMessage("Download and install it now? Android will show an Install prompt — tap Install to finish.")
                             .setPositiveButton("Download and install") { _, _ ->
                                 downloadAndInstall(activity, url, tag)

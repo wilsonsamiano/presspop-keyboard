@@ -125,8 +125,13 @@ android {
         // (password fields exempt), so a typo like
         // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
-        versionCode = 36
-        versionName = "0.2.2"
+        // Code 37, Oct 30, 2026 (Wilson): SafePop display
+        // rename, System theme fix, contact-name
+        // capitalization, and swipe apostrophe
+        // candidates. Package, class names, and
+        // preference keys are unchanged.
+        versionCode = 37
+        versionName = "0.2.3"
     }
 
     signingConfigs {

@@ -103,6 +103,13 @@ class PressPopIME : InputMethodService() {
 
     private var lastSpaceTap = 0L
     private var lastCorrected: Pair<String, String>? = null // (typed, correction)
+    // Code 37: one-tap apostrophe alternative after
+    // a swipe, e.g. swiped "well" -> tap left slot
+    // for "we'll". (alternative, committed word).
+    // Not a correction, so backspace does NOT undo
+    // to it, and it clears as soon as a new word
+    // starts being typed.
+    private var lastSwipeAlternative: Pair<String, String>? = null
 
     // Last word committed in this session, for next-word
     // prediction (code 20). Updated whenever a word is
@@ -736,9 +743,27 @@ class PressPopIME : InputMethodService() {
             val swipedBase = Dictionary.CONTRACTIONS[word.lowercase()] ?: word
             val swipedWord = capitalizePronounI(swipedBase)
                 ?: Dictionary.RANK_CASING[swipedBase.lowercase()] ?: swipedBase
-            val text = capitalizeForSentenceStart(swipedWord, 0) +
+            val committedForm = capitalizeForSentenceStart(swipedWord, 0)
+            val text = committedForm +
                 if (isPassword) "" else " "
             ic?.commitText(text, 1)
+            // Code 37: if the swiped word has an
+            // apostrophe twin ("well" -> "we'll"),
+            // offer the twin in the left slot.
+            // Do not auto-expand: "well" is a real
+            // word, so guessing "we'll" would be
+            // wrong just as often. The twin keeps
+            // the committed word's capitalisation.
+            lastSwipeAlternative = if (isPassword) {
+                null
+            } else {
+                Dictionary.apostropheTwin(swipedWord)?.let { twin ->
+                    val twinForm = if (committedForm.firstOrNull()?.isUpperCase() == true) {
+                        twin.replaceFirstChar { it.uppercaseChar() }
+                    } else twin
+                    twinForm to committedForm
+                }
+            }
             if (keyboardView.shiftOn && !keyboardView.shiftLock) {
                 keyboardView.shiftOn = false
             }
@@ -916,7 +941,7 @@ class PressPopIME : InputMethodService() {
         val apiKey = getSharedPreferences("presspop_settings", MODE_PRIVATE)
             .getString("tenor_api_key", "") ?: ""
         if (apiKey.isBlank()) {
-            gifInfoText.text = "Enter a free Tenor API key in the PressPop app first (Tenor API key setting), then search again."
+            gifInfoText.text = "Enter a free Tenor API key in the SafePop app first (Tenor API key setting), then search again."
             return
         }
         val query = gifQuery.trim().ifEmpty { "happy" } +
@@ -1031,7 +1056,7 @@ class PressPopIME : InputMethodService() {
         ) {
             Toast.makeText(
                 this,
-                "Allow microphone in the PressPop app first, then tap the mic again.",
+                "Allow microphone in the SafePop app first, then tap the mic again.",
                 Toast.LENGTH_LONG
             ).show()
             return
@@ -1418,10 +1443,35 @@ class PressPopIME : InputMethodService() {
             Dictionary.completions(word, personalWords)
         } else emptyList()
         val corrected = lastCorrected
+        // Code 37: a stale swipe alternative clears
+        // as soon as a new word starts being typed,
+        // so it never pops up after later words.
+        if (word.isNotEmpty()) lastSwipeAlternative = null
+        // Code 37, staleness guard: the twin is only
+        // valid while the cursor is still right after
+        // the swiped word plus its space. Once any
+        // other word is committed, the cursor text
+        // no longer ends that way, and the twin
+        // clears instead of swapping the wrong word.
+        if (lastSwipeAlternative != null) {
+            val alt = lastSwipeAlternative!!
+            val beforeCursor = try {
+                currentInputConnection?.getTextBeforeCursor(alt.second.length + 2, 0)?.toString()
+            } catch (e: Exception) {
+                null
+            }
+            if (beforeCursor?.endsWith(alt.second + " ") != true) {
+                lastSwipeAlternative = null
+            }
+        }
+        val swipeAlt = lastSwipeAlternative
         // Left slot: the word as typed, or the pre-autocorrect word
-        // right after a correction (tap it to undo the correction).
+        // right after a correction (tap it to undo the correction),
+        // or the apostrophe twin right after a swipe
+        // (tap it to swap "well" for "we'll").
         val left = when {
             corrected != null && word.isEmpty() -> corrected.first
+            swipeAlt != null && word.isEmpty() -> swipeAlt.first
             word.isNotEmpty() -> word
             else -> ""
         }
@@ -1586,6 +1636,33 @@ class PressPopIME : InputMethodService() {
             keyboardView.setTypedWord("")
             refreshSuggestions("")
             showSuggestionPopup(view, restored)
+            return
+        }
+        // Code 37: tapping the left slot right after a
+        // swipe swaps the committed word for its
+        // apostrophe twin ("well" -> "we'll"). Same
+        // delete-plus-space mechanics as undo, but
+        // it is NOT learned as a personal word —
+        // the twin is already in the dictionary —
+        // and backspace does not trigger it.
+        val swipeAlt = lastSwipeAlternative
+        if (index == 0 && swipeAlt != null && keyboardView.typedWord.isEmpty() &&
+            suggestion == swipeAlt.first
+        ) {
+            val before = try {
+                ic.getTextBeforeCursor(swipeAlt.second.length + 2, 0)?.toString()
+            } catch (e: Exception) {
+                null
+            }
+            val terminator = if (before?.endsWith(" ") == true) " " else ""
+            val charsToDrop = swipeAlt.second.length + if (terminator.isNotEmpty()) 1 else 0
+            ic.deleteSurroundingText(charsToDrop, 0)
+            ic.commitText(swipeAlt.first + terminator, 1)
+            recordCommittedWord(swipeAlt.first)
+            lastSwipeAlternative = null
+            keyboardView.setTypedWord("")
+            refreshSuggestions("")
+            showSuggestionPopup(view, swipeAlt.first)
             return
         }
         // Next-word tap, code 20: no word is being typed, so

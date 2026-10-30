@@ -161,6 +161,24 @@ object Dictionary {
         "heres" to "here's"
     )
 
+    // Code 37 (Wilson, Oct 30, 2026): a swiped
+    // "well" cannot be told apart from "we'll" by
+    // shape alone — the apostrophe has no key on
+    // the letters layout, so both traces are
+    // w-e-l-l. This finds the apostrophe twin of
+    // a plain word, if one is in the dictionary
+    // ("well" -> "we'll", "hell" -> "he'll"),
+    // so the keyboard can offer it as a one-tap
+    // alternative after the swipe, instead of
+    // guessing and getting it wrong half the time.
+    fun apostropheTwin(word: String): String? {
+        val w = word.lowercase()
+        if (w.contains('\'')) return null
+        return activeWords.firstOrNull {
+            it.contains('\'') && it.replace("'", "") == w
+        }
+    }
+
     // Military rank casing, code 25 (Wilson: Army ranks
     // should be capitalized all letters, follow guidance
     // for different branches). Keys are lowercase typed
@@ -373,7 +391,8 @@ object Dictionary {
         val p = prefix.lowercase()
         val out = mutableSetOf<Char>()
         for (w in extra + activeWords) {
-            if (w.length > p.length && w.startsWith(p)) out.add(w[p.length])
+            val wl = w.lowercase()
+            if (wl.length > p.length && wl.startsWith(p)) out.add(wl[p.length])
         }
         return out
     }
@@ -392,12 +411,16 @@ object Dictionary {
     fun completions(prefix: String, extra: Collection<String> = emptyList()): List<String> {
         if (prefix.length < 2) return emptyList()
         val p = prefix.lowercase()
-        val personal = extra.filter { it.startsWith(p) }
+        // Code 37: personal words keep their casing
+        // ("Angel"), so compare lowercased, but
+        // return the stored form, not a lowered copy.
+        val personalLower = extra.map { it.lowercase() }.toSet()
+        val personal = extra.filter { it.lowercase().startsWith(p) }
         val apostrophe = activeWords.filter {
-            it.contains('\'') && it.startsWith(p) && it !in personal
+            it.contains('\'') && it.startsWith(p) && it.lowercase() !in personalLower
         }
         val common = activeWords.filter {
-            it.startsWith(p) && it !in personal && it !in apostrophe
+            it.startsWith(p) && it.lowercase() !in personalLower && it !in apostrophe
         }
         // Code 25: rank suggestions show in their
         // official casing in the strip (SFC, GySgt),
@@ -502,9 +525,9 @@ object Dictionary {
         var best: String? = null
         var bestDist = Int.MAX_VALUE
         for (cand in extra + activeWords) {
-            if (cand == w) return null // already a real word: do not "correct" it
+            if (cand.lowercase() == w) return null // already a real word: do not "correct" it
             if (kotlin.math.abs(cand.length - w.length) > maxDist) continue
-            val d = levenshtein(w, cand)
+            val d = levenshtein(w, cand.lowercase())
             if (d < bestDist) {
                 bestDist = d
                 best = cand
@@ -517,12 +540,15 @@ object Dictionary {
     fun bestSwipeMatch(traced: String, extra: Collection<String> = emptyList()): String? {
         val t = traced.lowercase()
         if (t.length < 3) return null
-        if (t in activeWords || t in extra) return t
+        if (t in activeWords) return t
+        val extraMatch = extra.firstOrNull { it.lowercase() == t }
+        if (extraMatch != null) return extraMatch
         var best: String? = null
         var bestDist = Int.MAX_VALUE
         for (cand in extra + activeWords) {
-            if (cand.first() != t.first() || cand.last() != t.last()) continue
-            val d = levenshtein(t, cand)
+            val cl = cand.lowercase()
+            if (cl.first() != t.first() || cl.last() != t.last()) continue
+            val d = levenshtein(t, cl)
             if (d < bestDist) {
                 bestDist = d
                 best = cand
@@ -549,7 +575,8 @@ object Dictionary {
         // where a swipe starts is the most reliable part of it.
         var subBest: String? = null
         var subBestSpan = Int.MAX_VALUE
-        for (cand in extra + activeWords) {
+        for (candOrig in extra + activeWords) {
+            val cand = candOrig.lowercase()
             if (cand.length < 3 || cand.first() != t.first()) continue
             var ti = 0
             var matched = true

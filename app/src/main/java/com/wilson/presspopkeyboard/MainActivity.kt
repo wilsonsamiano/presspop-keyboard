@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
 
         val version = packageManager.getPackageInfo(packageName, 0)
         findViewById<TextView>(R.id.versionText).text =
-            "PressPop Keyboard - ${version.versionName} (code ${version.longVersionCode})"
+            "SafePop Keyboard - ${version.versionName} (code ${version.longVersionCode})"
 
         findViewById<Button>(R.id.enableButton).setOnClickListener {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
@@ -263,7 +263,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.sendErrorsButton).setOnClickListener {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "PressPop error reports (anonymous)")
+                putExtra(Intent.EXTRA_SUBJECT, "SafePop error reports (anonymous)")
                 putExtra(Intent.EXTRA_TEXT, ErrorReporter.reportText(this@MainActivity))
             }
             startActivity(Intent.createChooser(intent, "Send error reports"))
@@ -320,7 +320,7 @@ class MainActivity : AppCompatActivity() {
                 val clipboard =
                     getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(
-                    android.content.ClipData.newPlainText("PressPop debug", line)
+                    android.content.ClipData.newPlainText("SafePop debug", line)
                 )
                 Toast.makeText(this, "Debug line copied. Paste it to send it.", Toast.LENGTH_SHORT).show()
             }
@@ -448,10 +448,22 @@ class MainActivity : AppCompatActivity() {
 
     // Code 36: read contact display names and
     // add their parts as manual personal words.
-    // Returns how many NEW names were added.
+    // Returns how many NEW or UPDATED names were added.
+    // Code 37 (Wilson, Oct 30, 2026): imported
+    // names were lowercased here, so My Words
+    // showed "angel" instead of "Angel". Keep
+    // the contact's own casing, with only the
+    // first letter forced uppercase, and keep the
+    // rest as written, so "McDonald" is not
+    // mangled into "Mcdonald". Re-importing
+    // replaces a stored lowercase entry with its
+    // capitalized form (addManual dedups by
+    // lowercase), so names already imported on
+    // code 36 are fixed by tapping Import again.
     private fun importContactNames(): Int {
         return try {
-            val before = personal.manualWords().size
+            val before = personal.manualWords().toSet()
+            val imported = mutableSetOf<String>()
             val cursor = contentResolver.query(
                 ContactsContract.Contacts.CONTENT_URI,
                 arrayOf(ContactsContract.Contacts.DISPLAY_NAME),
@@ -463,14 +475,18 @@ class MainActivity : AppCompatActivity() {
                 while (it.moveToNext()) {
                     val displayName = it.getString(nameIndex) ?: continue
                     for (part in displayName.split(Regex("[\\s-]+"))) {
-                        val w = part.trim().lowercase()
-                        if (w.length >= 2 && w.all { c -> c.isLetter() || c == '\'' }) {
+                        val raw = part.trim()
+                        if (raw.length >= 2 && raw.all { c -> c.isLetter() || c == '\'' }) {
+                            val w = raw.replaceFirstChar { c ->
+                                if (c.isLowerCase()) c.titlecase() else c.toString()
+                            }
                             personal.addManual(w)
+                            imported.add(w)
                         }
                     }
                 }
             }
-            personal.manualWords().size - before
+            imported.count { it !in before }
         } catch (e: Exception) {
             0
         }

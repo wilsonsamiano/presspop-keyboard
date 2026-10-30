@@ -19,21 +19,34 @@ import android.content.Context
 class PersonalDictionary(context: Context) {
     private val prefs = context.getSharedPreferences("presspop_personal", Context.MODE_PRIVATE)
 
-    /** Manually added words. */
+    // Code 37 (Wilson, Oct 30, 2026): manual words
+    // keep the casing they were added with, so
+    // contact names show as "Angel", not "angel",
+    // and are suggested / swiped in that form.
+    // Matching stays case-insensitive everywhere
+    // it matters (isPersonal, noteTyped, and the
+    // callers that lowercase before comparing),
+    // so a capitalized name still blocks
+    // autocorrect of its lowercase typing.
+    /** Manually added words, casing as added. */
     fun manualWords(): Set<String> =
-        prefs.getStringSet("manual", emptySet())?.map { it.lowercase() }?.toSet() ?: emptySet()
+        prefs.getStringSet("manual", emptySet())?.toSet() ?: emptySet()
 
     fun addManual(word: String) {
-        val w = word.trim().lowercase()
+        val w = word.trim()
         if (w.isEmpty()) return
+        // One entry per word, regardless of case:
+        // adding "Angel" replaces a stored "angel"
+        // instead of leaving both in the list.
         val set = manualWords().toMutableSet()
+        set.removeAll { it.lowercase() == w.lowercase() }
         set.add(w)
         prefs.edit().putStringSet("manual", set).apply()
     }
 
     fun removeManual(word: String) {
         val set = manualWords().toMutableSet()
-        set.remove(word.lowercase())
+        set.removeAll { it.lowercase() == word.lowercase() }
         prefs.edit().putStringSet("manual", set).apply()
     }
 
@@ -75,7 +88,7 @@ class PersonalDictionary(context: Context) {
     /** Record that [word] was committed. Returns true if it just got learned. */
     fun noteTyped(word: String): Boolean {
         val w = word.lowercase()
-        if (w.length < 3 || w in manualWords() || !w.all { it.isLetter() }) return false
+        if (w.length < 3 || manualWords().any { it.lowercase() == w } || !w.all { it.isLetter() }) return false
         val counts = (prefs.getStringSet("counts", emptySet()) ?: emptySet()).toMutableSet()
         val old = counts.firstOrNull { it.startsWith("$w:") }
         val oldCount = old?.substringAfter(":")?.toIntOrNull() ?: 0
@@ -85,7 +98,8 @@ class PersonalDictionary(context: Context) {
         return oldCount + 1 == 7
     }
 
-    fun isPersonal(word: String): Boolean = word.lowercase() in allPersonalWords()
+    fun isPersonal(word: String): Boolean =
+        allPersonalWords().any { it.lowercase() == word.lowercase() }
 
     // Next-word pairs the user actually types, code 20,
     // uncapped in code 22.
