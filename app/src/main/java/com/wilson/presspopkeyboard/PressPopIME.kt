@@ -487,22 +487,30 @@ class PressPopIME : InputMethodService() {
                             // extended code 34: a closing mark
                             // pressed after a space must not
                             // leave "word ," / "word ." /
-                            // "word ;" / "word !" / "word ?" /
-                            // "word )" behind. Typing a word,
+                            // "word ;" / "word :" / "word !" /
+                            // "word ?" / "word )" / "word ]" /
+                            // "word }" behind. Typing a word,
                             // then Space, then the mark is the
                             // normal way a sentence ends, and
                             // the space before a closing mark
-                            // is never wanted. So if the
-                            // character before the cursor is
-                            // a single space, delete it first,
-                            // then commit the mark. Colon is
-                            // NOT in this set (times like
-                            // 12:30, ratios), and opening
-                            // marks like "(" are not either.
+                            // is never wanted — a colon still
+                            // sits tight against its word in
+                            // English ("Note:"), and times /
+                            // ratios like 12:30 have no space
+                            // before the colon anyway, so
+                            // including it breaks nothing.
+                            // So if the character before the
+                            // cursor is a single space, delete
+                            // it first, then commit the mark.
+                            // Opening marks like "(" / "[" /
+                            // "{" are NOT in this set, and
+                            // neither are separators like "/"
+                            // or math marks like ">" where a
+                            // space before is often wanted.
                             // Password fields are exempt: a
                             // space there is part of the
                             // password, not a separator.
-                            if (key.output in setOf(",", ".", ";", "!", "?", ")") && !isPasswordField()) {
+                            if (key.output in setOf(",", ".", ";", ":", "!", "?", ")", "]", "}") && !isPasswordField()) {
                                 try {
                                     if (ic.getTextBeforeCursor(1, 0)?.toString() == " ") {
                                         ic.deleteSurroundingText(1, 0)
@@ -533,6 +541,32 @@ class PressPopIME : InputMethodService() {
                             // the quotes, no spaces inside.
                             // If there is no space before the
                             // cursor, just commit the mark.
+                            // Code 34, single quote: same
+                            // opening / closing rule as the
+                            // double quote, plus contractions.
+                            // A ' with no space before it is
+                            // a contraction ("don't") and is
+                            // left alone. With a space before
+                            // it, an opening ' keeps the space
+                            // and a closing ' drops it, exactly
+                            // as for ".
+                            if (key.output == "'" && !isPasswordField()) {
+                                try {
+                                    val before2q = ic.getTextBeforeCursor(2, 0)?.toString() ?: ""
+                                    if (before2q.endsWith(" ")) {
+                                        val beforeSpaceQ = before2q.dropLast(1)
+                                        val isOpeningQ = beforeSpaceQ.isEmpty() ||
+                                            beforeSpaceQ.last().isWhitespace() ||
+                                            beforeSpaceQ.last() in "([{"
+                                        if (!isOpeningQ) {
+                                            ic.deleteSurroundingText(1, 0)
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    // As above: never break
+                                    // typing for a quote.
+                                }
+                            }
                             if (key.output == "\"" && !isPasswordField()) {
                                 try {
                                     val before2 = ic.getTextBeforeCursor(2, 0)?.toString() ?: ""
