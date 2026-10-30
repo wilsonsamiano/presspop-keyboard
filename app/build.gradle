@@ -26,14 +26,13 @@ android {
         // covering swipe, autocorrect, and suggestion taps, so it
         // can stay in the app for customer support. Grok must build
         // this exact version, not bump it again locally.
-        // Bumped Oct 29, 2026: on Wilson's onn tablet, Toast debug
-        // popups still never showed on code 10, and the first key
-        // pop sound was a loud clipped tone. Debug now draws as a
-        // banner inside the keyboard itself, and the pop is a soft
-        // decaying sine at half volume. Grok must build this exact
-        // version, not bump it again.
-        versionCode = 11
-        versionName = "beta 0.1.10"
+        // Bumped Oct 29, 2026: Wilson wants a TAP, not a sine pop,
+        // one register lower (325 Hz, not 650 Hz), short and
+        // percussive, not spacey. Only the sound changed from
+        // code 11; the in-keyboard debug banner is unchanged.
+        // Grok must build this exact version, not bump it again.
+        versionCode = 12
+        versionName = "beta 0.1.11"
     }
 
     signingConfigs {

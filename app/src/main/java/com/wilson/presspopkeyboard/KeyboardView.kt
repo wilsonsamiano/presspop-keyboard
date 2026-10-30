@@ -169,9 +169,10 @@ class KeyboardView @JvmOverloads constructor(
             if (soundPool == null) initPopSound()
             if (popLoaded && popSoundId != 0) {
                 // Half volume, Oct 29, 2026: the first pop was a
-                // loud clipped tone at full volume and Wilson
-                // called it terrible. The wav is now a soft
-                // decaying sine, and it plays at 0.5, not 1.0.
+                // loud clipped tone and the second a spacey sine.
+                // Wilson wants a TAP, one register lower: the wav
+                // is now a short 325 Hz tap with a low thump and a
+                // brief contact click, played at 0.5, not 1.0.
                 soundPool?.play(popSoundId, 0.5f, 0.5f, 0, 0, 1f)
             }
         } catch (e: Exception) {
