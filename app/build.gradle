@@ -218,3 +218,12 @@ dependencies {
 // edge start no longer excludes the correct word.
 // (3) Two 3-point smoothing passes instead of one,
 // for fast-swipe jitter. Version stays 25.
+
+// Code 25, fourth commit, Oct 29, 2026 (Wilson, still
+// before sending to Grok): swipe order scoring. Pure
+// Chamfer ignored letter order, so "vanuatu" beat
+// "very". Score is now 70% Chamfer + 30% ordered
+// resampled point-by-point. Also: 2-letter swipes
+// now count (wasSwipe distinct >=2, shape candidates
+// >=2 letters), so "is" no longer lands as "ids"
+// via a crossed-d trace. Version stays 25.

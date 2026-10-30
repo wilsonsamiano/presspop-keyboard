@@ -807,7 +807,12 @@ class KeyboardView @JvmOverloads constructor(
             val candidates = (personalWords + Dictionary.activeWords).distinct()
                 .filter { allowedStarts == null || it.isNotEmpty() && it[0].toString() in allowedStarts }
             for (cand in candidates) {
-                if (cand.length < 3) continue
+                // Code 25, 4th commit: 2-letter words were
+                // excluded, so a swipe for "is" could only
+                // land via the letter trace — and a trace
+                // that crossed d on the way (i-d-s) landed
+                // as "ids". Shape matching now handles them.
+                if (cand.length < 2) continue
                 val path = mutableListOf<PointF>()
                 var ok = true
                 for (c in cand.lowercase()) {
@@ -818,7 +823,33 @@ class KeyboardView @JvmOverloads constructor(
                     }
                 }
                 if (!ok || path.size < 2) continue
-                val score = chamferScore(actual, path)
+                // Code 25, 4th commit (Wilson's test sentence
+                // on code 23: "The swipe is still very far
+                // from perfect" came out as "the sore ids
+                // soil vanuatu fat from percy"). Pure
+                // Chamfer ignores ORDER: a candidate whose
+                // centers merely lie near the path scores
+                // well even if its letters come in the
+                // wrong order along it — which is how a
+                // rare long word like "vanuatu" (v-a-n-u-a-t-u,
+                // centers near a v-e-r-y path) beat the
+                // common short word "very". Ordered scoring
+                // (resample the candidate path to 32 points
+                // and compare point-by-point, in order)
+                // punishes that, but on its own it punishes
+                // wandering loops too harshly. Combined
+                // score, 70% Chamfer / 30% ordered, keeps
+                // the tolerance and restores order.
+                val orderedPath = resamplePath(path, 32)
+                var orderedSum = 0f
+                for (i in actual.indices) {
+                    orderedSum += hypot(
+                        actual[i].x - orderedPath[i].x,
+                        actual[i].y - orderedPath[i].y
+                    )
+                }
+                val orderedScore = orderedSum / actual.size
+                val score = chamferScore(actual, path) * 0.7f + orderedScore * 0.3f
                 // Frequency preference: a later (less
                 // frequent) candidate only replaces the
                 // best if it scores at least 10dp better,
@@ -1058,7 +1089,7 @@ class KeyboardView @JvmOverloads constructor(
                 pressedKey = null
                 pressedRect = null
                 val wasSwipe = mode == KeyboardMode.LETTERS &&
-                    visitedLetters.distinct().size >= 3 &&
+                    visitedLetters.distinct().size >= 2 &&
                     pathLength() > dp(50f)
                 // Capture the traced letters BEFORE clearing: visitedLetters
                 // already dedupes consecutive repeats (h-e-l-o for hello),
