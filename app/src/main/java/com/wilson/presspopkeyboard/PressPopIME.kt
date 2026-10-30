@@ -90,27 +90,50 @@ class PressPopIME : InputMethodService() {
             personal.notePair(lastCommittedWord, w)
         }
         lastCommittedWord = w
+        committedHistory.add(w)
+        if (committedHistory.size > 2) committedHistory.removeAt(0)
     }
 
     // Previous word before the cursor, for next-word
     // prediction. Reads the field itself first, so it works
     // even if the cursor moved; falls back to the last word
     // this keyboard committed in this session.
+    // Last two committed words, for trigram grammar context.
+    private val committedHistory = mutableListOf<String>()
+
     private fun lastWordBeforeCursor(): String {
+        val (prevPrev, prev) = lastTwoWordsBeforeCursor()
+        return prev
+    }
+
+    // Last two words before the cursor, for trigram context.
+    // Returns ("", "") at a sentence start (newline, or after
+    // ". ", "? ", "! "), because a bigram from the previous
+    // sentence must not predict the first word of the next.
+    private fun lastTwoWordsBeforeCursor(): Pair<String, String> {
         val ic = currentInputConnection
         if (ic != null) {
             try {
                 val before = ic.getTextBeforeCursor(80, 0)?.toString() ?: ""
-                val match = Regex("[A-Za-z']+\\s*$").find(before)
-                if (match != null) {
-                    val w = match.value.trim().lowercase()
-                    if (w.isNotEmpty()) return w
+                val trimmed = before.trimEnd()
+                if (trimmed.isEmpty() || trimmed.endsWith("\n") ||
+                    trimmed.endsWith(".") || trimmed.endsWith("?") || trimmed.endsWith("!")
+                ) {
+                    return "" to ""
+                }
+                val words = Regex("[A-Za-z']+").findAll(before).map { it.value.lowercase() }.toList()
+                if (words.isNotEmpty()) {
+                    val prev = words.last()
+                    val prevPrev = if (words.size >= 2) words[words.size - 2] else ""
+                    return prevPrev to prev
                 }
             } catch (e: Exception) {
-                // Fall through to lastCommittedWord.
+                // Fall through to committed history.
             }
         }
-        return lastCommittedWord
+        val prev = committedHistory.lastOrNull() ?: ""
+        val prevPrev = if (committedHistory.size >= 2) committedHistory[committedHistory.size - 2] else ""
+        return prevPrev to prev
     }
     private var darkMode = false
     // Auto-capitalization for this field: on for plain text, off for
@@ -354,7 +377,54 @@ class PressPopIME : InputMethodService() {
                         KeyAction.SPACE -> handleSpace()
                         KeyAction.DELETE -> handleDelete()
                         KeyAction.ENTER -> {
-                            commitCurrentWordForLearning()
+                            // Autocorrect on Enter, code 21: the
+                            // last word before Enter used to be
+                            // left uncorrected, because
+                            // autocorrect only ran on Space —
+                            // so a typo like "somtimes" at the
+                            // end of a line stayed wrong. Now
+                            // Enter runs the same contraction /
+                            // correction as Space first, then
+                            // sends Enter. Password fields are
+                            // exempt, as with auto-capitalization.
+                            val enterWord = keyboardView.typedWord
+                            val enterType = currentInputEditorInfo?.inputType ?: InputType.TYPE_CLASS_TEXT
+                            val enterVariation = enterType and InputType.TYPE_MASK_VARIATION
+                            val isPasswordField = enterVariation ==
+                                InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                                enterVariation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                            if (enterWord.isNotEmpty() && !isPasswordField) {
+                                val enterContraction = Dictionary.CONTRACTIONS[enterWord.lowercase()]
+                                if (enterContraction != null) {
+                                    ic.deleteSurroundingText(enterWord.length, 0)
+                                    ic.commitText(enterContraction, 1)
+                                    recordCommittedWord(enterContraction)
+                                    lastCorrected = enterWord to enterContraction
+                                } else if (!Dictionary.isWord(enterWord) &&
+                                    !personal.isPersonal(enterWord) &&
+                                    enterWord.all { it.code < 128 }
+                                ) {
+                                    val enterCorrection = Dictionary.bestCorrection(
+                                        enterWord, personal.allPersonalWords()
+                                    )
+                                    if (enterCorrection != null) {
+                                        ic.deleteSurroundingText(enterWord.length, 0)
+                                        ic.commitText(enterCorrection, 1)
+                                        recordCommittedWord(enterCorrection)
+                                        lastCorrected = enterWord to enterCorrection
+                                    } else {
+                                        personal.noteTyped(enterWord)
+                                        recordCommittedWord(enterWord)
+                                    }
+                                } else {
+                                    personal.noteTyped(enterWord)
+                                    recordCommittedWord(enterWord)
+                                }
+                                keyboardView.setTypedWord("")
+                                refreshSuggestions("")
+                            } else {
+                                commitCurrentWordForLearning()
+                            }
                             ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
                             ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
                             updateAutoShift()
@@ -873,9 +943,12 @@ class PressPopIME : InputMethodService() {
         // Tapping one commits it plus a space, so the next
         // next-word offer appears at once.
         val nextWords = if (word.isEmpty()) {
-            val prev = lastWordBeforeCursor()
+            val (prevPrev, prev) = lastTwoWordsBeforeCursor()
             if (prev.isNotEmpty()) {
-                (personal.learnedNextWords(prev) + (Dictionary.BIGRAMS[prev] ?: emptyList()))
+                val trigram = if (prevPrev.isNotEmpty()) {
+                    Dictionary.TRIGRAMS["$prevPrev $prev"] ?: emptyList()
+                } else emptyList()
+                (personal.learnedNextWords(prev) + trigram + (Dictionary.BIGRAMS[prev] ?: emptyList()))
                     .distinct().take(2)
             } else emptyList()
         } else emptyList()

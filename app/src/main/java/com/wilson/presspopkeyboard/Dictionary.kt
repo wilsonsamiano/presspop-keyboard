@@ -268,6 +268,8 @@ object Dictionary {
         "an" to listOf("hour", "idea", "old"),
         "no" to listOf("problem", "worries", "idea"),
         "yes" to listOf("please", "sir", "maam"),
+        "the" to listOf("first", "best", "only"),
+        "am" to listOf("going", "not", "so"),
         // Plural / singular agreement, code 21 (Wilson: add
         // plural context to sentences). After a plural word,
         // the next word must agree in number: these/those/
@@ -319,14 +321,94 @@ object Dictionary {
         return out
     }
 
-    /** Words starting with [prefix], personal words first. */
+    /** Words starting with [prefix], personal words first.
+     * Apostrophe forms are offered next, code 21 (Wilson:
+     * words that should be with an apostrophe, like there's
+     * and that's, should give me options as suggestions).
+     * Without this, there's/that's sit at the end of the
+     * 20,000-word list, past the take(5) cutoff, so typing
+     * "ther" or "that" never offered them — even though
+     * they are the word he wants. Now typing "theres"
+     * offers "there's", typing "that" offers "that's",
+     * and so on, as a tap choice, not only as a Space
+     * auto-expansion. */
     fun completions(prefix: String, extra: Collection<String> = emptyList()): List<String> {
         if (prefix.length < 2) return emptyList()
         val p = prefix.lowercase()
         val personal = extra.filter { it.startsWith(p) }
-        val common = activeWords.filter { it.startsWith(p) && it !in personal }
-        return (personal + common).take(5)
+        val apostrophe = activeWords.filter {
+            it.contains('\'') && it.startsWith(p) && it !in personal
+        }
+        val common = activeWords.filter {
+            it.startsWith(p) && it !in personal && it !in apostrophe
+        }
+        return (personal + apostrophe + common).distinct().take(5)
     }
+
+    /**
+     * Grammar context, code 21 (Wilson: "please add grammar
+     * context"). Two-word context -> next word, for common
+     * phrases where the previous word alone is not enough:
+     * "thank you" -> for, "how are" -> you, "going to" ->
+     * the, "there is" -> a, and so on. Offered after
+     * learned pairs and before the one-word BIGRAMS table,
+     * so a specific phrase wins over a generic next word.
+     * Honest limit, as with bigrams: this is a phrase
+     * table, not a full grammar engine — it knows the
+     * next word from the last two words, not from the
+     * whole sentence, and it has no part-of-speech
+     * tagging beyond the pairs listed here.
+     */
+    val TRIGRAMS: Map<String, List<String>> = mapOf(
+        "thank you" to listOf("for", "so", "much"),
+        "how are" to listOf("you", "things", "we"),
+        "i have" to listOf("to", "been", "a"),
+        "i am" to listOf("going", "not", "so"),
+        "going to" to listOf("the", "be", "get"),
+        "want to" to listOf("go", "be", "get"),
+        "need to" to listOf("go", "be", "get"),
+        "have to" to listOf("go", "be", "get"),
+        "let me" to listOf("know", "see", "help"),
+        "look at" to listOf("the", "this", "that"),
+        "in the" to listOf("morning", "evening", "middle"),
+        "on the" to listOf("other", "same", "top"),
+        "at the" to listOf("moment", "time", "top"),
+        "for the" to listOf("first", "last", "next"),
+        "to the" to listOf("store", "house", "top"),
+        "with the" to listOf("help", "time", "kids"),
+        "from the" to listOf("store", "house", "top"),
+        "one of" to listOf("the", "my", "those"),
+        "a lot" to listOf("of", "more", "better"),
+        "by the" to listOf("way", "time", "end"),
+        "out of" to listOf("the", "my", "time"),
+        "up to" to listOf("you", "me", "the"),
+        "back to" to listOf("the", "work", "school"),
+        "next to" to listOf("the", "me", "my"),
+        "in front" to listOf("of", "the", "me"),
+        "as soon" to listOf("as", "possible", "i"),
+        "i will" to listOf("be", "go", "get"),
+        "you will" to listOf("be", "see", "get"),
+        "we will" to listOf("be", "go", "see"),
+        "they will" to listOf("be", "go", "have"),
+        "he will" to listOf("be", "go", "have"),
+        "she will" to listOf("be", "go", "have"),
+        "it will" to listOf("be", "take", "rain"),
+        "i was" to listOf("going", "not", "born"),
+        "you were" to listOf("going", "not", "right"),
+        "we were" to listOf("going", "not", "talking"),
+        "they were" to listOf("going", "not", "talking"),
+        "this is" to listOf("a", "the", "my"),
+        "that is" to listOf("a", "the", "not"),
+        "there is" to listOf("a", "no", "the"),
+        "there are" to listOf("many", "some", "no"),
+        "here is" to listOf("the", "my", "a"),
+        "what is" to listOf("your", "the", "this"),
+        "what are" to listOf("you", "we", "they"),
+        "when are" to listOf("you", "we", "they"),
+        "where is" to listOf("the", "my", "your"),
+        "why is" to listOf("it", "this", "that"),
+        "how is" to listOf("your", "the", "it")
+    )
 
     // Edit distance, counting an adjacent transposition as ONE edit
     // (optimal string alignment / Damerau-Levenshtein). Plain

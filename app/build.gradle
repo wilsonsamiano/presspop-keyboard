@@ -114,6 +114,16 @@ android {
         // (3) Plural/singular agreement bigrams: these/
         // those/two/many/few/several -> plural next words;
         // this/that/he/she/it -> singular next words.
+        // Additions to code 21, before Grok builds it (same
+        // version, new commit): apostrophe forms prioritized
+        // in completions (typing "theres" offers "there's",
+        // typing "that" offers "that's"); TRIGRAMS grammar
+        // context (thank you -> for, how are -> you, going
+        // to -> the, etc., learned pairs first, then
+        // trigram, then bigram, no prediction at a sentence
+        // start); Enter autocorrects the last word first
+        // (password fields exempt), so a typo like
+        // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
         versionCode = 21
         versionName = "beta 0.1.20"
