@@ -209,3 +209,12 @@ dependencies {
 // SgtMaj; Air Force SrA, SSgt, MSgt; Navy LTJG, CPO).
 // Version stays 25 — this commit was added before
 // Wilson sent code 25 to Grok.
+
+// Code 25, third commit, Oct 29, 2026 (Wilson, still
+// before sending to Grok): swipe tolerance. (1)
+// Threshold 45dp -> 60dp (lift picks 70dp). (2)
+// Two-pass start filter: pass 1 nearest start key
+// only, pass 2 neighboring keys within 80dp, so an
+// edge start no longer excludes the correct word.
+// (3) Two 3-point smoothing passes instead of one,
+// for fast-swipe jitter. Version stays 25.

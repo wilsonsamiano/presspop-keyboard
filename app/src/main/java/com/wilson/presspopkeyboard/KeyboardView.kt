@@ -752,71 +752,127 @@ class KeyboardView @JvmOverloads constructor(
         // said defeats the purpose. One 3-point moving-average
         // pass (first/last points kept) takes the tremor out
         // without moving the start or lift points.
-        val smoothed = if (swipePoints.size < 3) swipePoints else {
+        // Code 25, swipe tolerance: two 3-point smoothing
+        // passes instead of one. A fast swipe jitters
+        // more than one pass removes, and that jitter
+        // inflates every candidate's Chamfer score, so a
+        // correct word that should land at 40dp lands at
+        // 55dp and misses the threshold. First and last
+        // points are kept by both passes, so start and
+        // lift letters do not move.
+        fun smoothOnce(pts: List<PointF>): List<PointF> {
+            if (pts.size < 3) return pts
             val out = mutableListOf<PointF>()
-            out.add(swipePoints[0])
-            for (i in 1 until swipePoints.size - 1) {
+            out.add(pts[0])
+            for (i in 1 until pts.size - 1) {
                 out.add(PointF(
-                    (swipePoints[i - 1].x + swipePoints[i].x * 2f + swipePoints[i + 1].x) / 4f,
-                    (swipePoints[i - 1].y + swipePoints[i].y * 2f + swipePoints[i + 1].y) / 4f
+                    (pts[i - 1].x + pts[i].x * 2f + pts[i + 1].x) / 4f,
+                    (pts[i - 1].y + pts[i].y * 2f + pts[i + 1].y) / 4f
                 ))
             }
-            out.add(swipePoints.last())
-            out
+            out.add(pts.last())
+            return out
         }
+        val smoothed = smoothOnce(smoothOnce(swipePoints))
         val actual = resamplePath(smoothed, 32)
-        var best: String? = null
-        var bestScore = Float.MAX_VALUE
-        var bestIndex = Int.MAX_VALUE
-        var liftBest: String? = null
-        var liftBestScore = Float.MAX_VALUE
-        val candidates = (personalWords + Dictionary.activeWords).distinct()
-            .filter { startLetter == null || it.startsWith(startLetter) }
-        for ((candIndex, cand) in candidates.withIndex()) {
-            if (cand.length < 3) continue
-            val path = mutableListOf<PointF>()
-            var ok = true
-            for (c in cand.lowercase()) {
-                val center = centers[c.toString()]
-                if (center == null) { ok = false; break }
-                if (path.isEmpty() || hypot(center.x - path.last().x, center.y - path.last().y) > 1f) {
-                    path.add(center)
+        // Scoring, code 25 (swipe tolerance, Wilson on
+        // code 23: swipe still has to be too precise /
+        // too slow to land). Three changes, all in this
+        // one function so a failed swipe can be read
+        // from the debug line (shapeScore):
+        // (1) Threshold 45dp -> 60dp. 45dp rejected
+        // correct words whose path wandered even a
+        // little; with frequency ordering and the lift
+        // preference, 60dp lands more correct words
+        // than wrong ones. If wrong words start
+        // landing, this is the number to tighten back.
+        // (2) Two-pass start filter. The old code scored
+        // ONLY words starting on the key nearest the
+        // first touch point. Start a touch on the edge
+        // between two keys and the nearest key is the
+        // wrong one, so the correct word was never
+        // even scored. Pass 1 is the old fast path
+        // (nearest start letter only). If it fails,
+        // pass 2 scores words starting on any key
+        // center within 80dp of the start point
+        // (the neighboring keys), so an edge start
+        // still lands — slower only on failed swipes.
+        // (3) Lift-pick ceiling 60dp -> 70dp, matching
+        // the looser threshold.
+        fun scoreCandidates(allowedStarts: Set<String>?): Array<Any?> {
+            var best: String? = null
+            var bestScore = Float.MAX_VALUE
+            var liftBest: String? = null
+            var liftBestScore = Float.MAX_VALUE
+            val candidates = (personalWords + Dictionary.activeWords).distinct()
+                .filter { allowedStarts == null || it.isNotEmpty() && it[0].toString() in allowedStarts }
+            for (cand in candidates) {
+                if (cand.length < 3) continue
+                val path = mutableListOf<PointF>()
+                var ok = true
+                for (c in cand.lowercase()) {
+                    val center = centers[c.toString()]
+                    if (center == null) { ok = false; break }
+                    if (path.isEmpty() || hypot(center.x - path.last().x, center.y - path.last().y) > 1f) {
+                        path.add(center)
+                    }
+                }
+                if (!ok || path.size < 2) continue
+                val score = chamferScore(actual, path)
+                // Frequency preference: a later (less
+                // frequent) candidate only replaces the
+                // best if it scores at least 10dp better,
+                // so a common word wins a near tie.
+                if (score < bestScore - dp(10f) || best == null) {
+                    bestScore = score
+                    best = cand
+                }
+                if (liftLetter != null && cand.endsWith(liftLetter) && score < liftBestScore) {
+                    liftBestScore = score
+                    liftBest = cand
                 }
             }
-            if (!ok || path.size < 2) continue
-            // Chamfer score, code 20: replaces point-by-point
-            // scoring, which punished any wandering loop by
-            // shifting all later points. Frequency tie-break:
-            // the candidate list is personal words first, then
-            // the 20,000-word list in frequency order, so when
-            // two scores are within 10dp, the earlier (more
-            // frequent / more personal) word wins instead of
-            // whichever happened to score a fraction lower.
-            val score = chamferScore(actual, path)
-            if (score < bestScore - dp(10f) ||
-                (score <= bestScore + dp(10f) && candIndex < bestIndex)
-            ) {
-                bestScore = score
-                best = cand
-                bestIndex = candIndex
-            }
-            if (liftLetter != null && cand.endsWith(liftLetter) && score < liftBestScore) {
-                liftBestScore = score
-                liftBest = cand
-            }
+            return arrayOf(best, bestScore, liftBest, liftBestScore)
         }
-        var picked = best
-        var pickedScore = bestScore
-        if (liftLetter != null && liftBest != null && liftBest != best &&
-            liftBestScore <= bestScore + dp(30f) && liftBestScore <= dp(60f)
-        ) {
-            picked = liftBest
-            pickedScore = liftBestScore
+        fun pickFrom(scored: Array<Any?>): Triple<String?, Float, Boolean> {
+            val best = scored[0] as String?
+            val bestScore = scored[1] as Float
+            val liftBest = scored[2] as String?
+            val liftBestScore = scored[3] as Float
+            var picked = best
+            var pickedScore = bestScore
+            var isLiftPick = false
+            if (liftLetter != null && liftBest != null && liftBest != best &&
+                liftBestScore <= bestScore + dp(30f) && liftBestScore <= dp(70f)
+            ) {
+                picked = liftBest
+                pickedScore = liftBestScore
+                isLiftPick = true
+            }
+            return Triple(picked, pickedScore, isLiftPick)
+        }
+        val firstStarts = if (startLetter == null) null else setOf(startLetter)
+        var (picked, pickedScore, isLiftPick) = pickFrom(scoreCandidates(firstStarts))
+        var threshold = if (isLiftPick) dp(70f) else dp(60f)
+        if ((picked == null || pickedScore > threshold) && startLetter != null) {
+            // Pass 2: neighboring start letters only.
+            val neighbors = centers.entries
+                .filter { hypot(it.value.x - first.x, it.value.y - first.y) <= dp(80f) }
+                .sortedBy { hypot(it.value.x - first.x, it.value.y - first.y) }
+                .map { it.key }.filter { it != startLetter }.take(3).toSet()
+            if (neighbors.isNotEmpty()) {
+                val (picked2, pickedScore2, isLiftPick2) = pickFrom(scoreCandidates(neighbors))
+                if (picked2 != null && (picked == null || pickedScore2 < pickedScore)) {
+                    picked = picked2
+                    pickedScore = pickedScore2
+                    isLiftPick = isLiftPick2
+                    threshold = if (isLiftPick) dp(70f) else dp(60f)
+                }
+            }
         }
         lastShapeScoreDp = if (picked != null) {
             (pickedScore / resources.displayMetrics.density).roundToInt()
         } else null
-        val threshold = if (picked == liftBest && picked != best) dp(60f) else dp(45f)
         return if (picked != null && pickedScore <= threshold) picked else null
     }
 
