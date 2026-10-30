@@ -3,7 +3,7 @@ package com.wilson.presspopkeyboard
 import kotlin.math.min
 
 /**
- * Built-in English dictionary (20,084 words, code 17+). It powers:
+ * Built-in English dictionary (17,395 words, code 27 2nd commit — cleaned from 20,143, see WordChunks.kt). It powers:
  * 1. Predictive hit areas - which letters can follow the word so far.
  * 2. Swipe typing - which word a glide path most likely spells.
  * 3. Autocorrect + suggestions - completions and near-miss corrections.
