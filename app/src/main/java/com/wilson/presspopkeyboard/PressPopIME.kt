@@ -750,6 +750,37 @@ class PressPopIME : InputMethodService() {
             updateAutoShift()
         }
 
+        // Code 36, delete-word gesture: delete the
+        // word before the cursor, plus one trailing
+        // space if there is one, so "hello " + slide
+        // leaves the cursor after the previous word,
+        // not after a stray space. Never deletes
+        // past a word boundary, and never breaks
+        // typing if the field cannot report text.
+        keyboardView.onDeleteWord = {
+            try {
+                val ic = currentInputConnection
+                val before = ic?.getTextBeforeCursor(100, 0)?.toString() ?: ""
+                if (before.isNotEmpty()) {
+                    var toDelete = before
+                    var trailingSpace = 0
+                    if (toDelete.endsWith(" ")) {
+                        trailingSpace = 1
+                        toDelete = toDelete.dropLast(1)
+                    }
+                    val lastSpace = toDelete.lastIndexOf(' ')
+                    val wordLen = if (lastSpace >= 0) toDelete.length - lastSpace - 1 else toDelete.length
+                    if (wordLen > 0) {
+                        ic?.deleteSurroundingText(wordLen + trailingSpace, 0)
+                    } else if (trailingSpace > 0) {
+                        ic?.deleteSurroundingText(1, 0)
+                    }
+                }
+            } catch (e: Exception) {
+                // Deleting a word must never break typing.
+            }
+        }
+
         keyboardView.onCursorMove = { delta ->
             val ic = currentInputConnection
             if (ic != null) {
@@ -1352,6 +1383,15 @@ class PressPopIME : InputMethodService() {
         // previous field was a password field.
         strip.visibility = View.VISIBLE
         val personalWords = personal.allPersonalWords()
+        // Code 36, swipe bigram rescoring: keep the
+        // view's previous word in step, so the next
+        // swipe can be rescored against it. This runs
+        // on every refresh, so it follows tap-typed
+        // words, swiped words, and field text alike.
+        if (word.isEmpty() && ::keyboardView.isInitialized) {
+            val (_, prevWord) = lastTwoWordsBeforeCursor()
+            keyboardView.previousWord = prevWord
+        }
         // Next-word prediction, code 20: when no word is being
         // typed (right after a Space or a swiped word), the
         // middle/right slots offer the most likely NEXT word,

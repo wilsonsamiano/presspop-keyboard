@@ -73,6 +73,12 @@ class KeyboardView @JvmOverloads constructor(
 
     var onKey: ((Key) -> Unit)? = null
     var onSwipeWord: ((String) -> Unit)? = null
+    var onDeleteWord: (() -> Unit)? = null
+    // Code 36, swipe research: previous word before the
+    // cursor, set by PressPopIME, for bigram rescoring.
+    var previousWord: String = ""
+    private var downAction: KeyAction? = null
+    private var downTimeMs: Long = 0L
     var onCursorMove: ((Int) -> Unit)? = null
     var onCursorLineMove: ((Int) -> Unit)? = null
     var onWordChanged: ((String) -> Unit)? = null
@@ -336,6 +342,7 @@ class KeyboardView @JvmOverloads constructor(
 
     // Swipe state
     private val swipePoints = mutableListOf<PointF>()
+    private val swipeTimes = mutableListOf<Long>()
     private val visitedLetters = mutableListOf<String>()
     // Last shape-match score, in dp, for the debug line. Set by
     // shapeMatch() so the next debug line shows not just which
@@ -799,6 +806,58 @@ class KeyboardView @JvmOverloads constructor(
         return (sumActual / actual.size + sumCand / candPath.size) / 2f
     }
 
+    // Code 36, swipe research (Wilson, Oct 30, 2026:
+    // "implement all these findings"):
+    // SHARK2 pipeline, in general terms, built on
+    // the existing Chamfer + ordered scorer, not
+    // a new model and no proprietary code:
+    // - Key-width units, not dp: thresholds scale
+    //   with the actual key size on this device,
+    //   so the same swipe works on a tablet and
+    //   on a small phone. Key width is the median
+    //   CHAR key width from the live layout, so
+    //   the scorer is layout-agnostic (FUTO's
+    //   general idea, without any neural model).
+    // - Path-length gate: a candidate whose ideal
+    //   path is far longer or far shorter than
+    //   the actual path is pruned before scoring.
+    //   This stops long rare words beating short
+    //   common ones on shape alone.
+    // - Speed weighting (SHARK2 dynamic weighting):
+    //   a fast stroke is spatially sloppy, so the
+    //   ordered/location term is down-weighted
+    //   when the swipe is fast, and shape (Chamfer)
+    //   carries more weight.
+    // - N-best rescoring: the top 8 geometry
+    //   candidates are rescored with frequency,
+    //   personal-word, bigram, and double-letter
+    //   boosts, instead of a single 10dp frequency
+    //   tie-break. Geometry still gates: a word
+    //   with bad geometry cannot win on boosts.
+    // - Double-letter dwell: a pause of 180ms or
+    //   more on a middle key (not the first or
+    //   last key, where a pause is just starting
+    //   or lifting) is weak evidence that key is
+    //   doubled, and candidates with that double
+    //   get a boost. This is SwiftKey's dwell
+    //   idea in general terms; no loop gesture
+    //   is required, and the dictionary layer
+    //   (collapsed doubles in the template) still
+    //   works without a dwell.
+    // - Soft key proximity is already the Chamfer
+    //   term: distance to the nearest segment, not
+    //   a hard key sequence, so a missed or crossed
+    //   key only adds distance, it does not break
+    //   the word.
+    // NOT in this build, deliberately, per the
+    // research's own ranking: a neural decoder
+    // (needs data and a trained model first) and
+    // true space-through multi-word swiping
+    // (needs trace segmentation, only SwiftKey
+    // documents a shipped version, no public
+    // algorithm found). Auto-space on lift is
+    // already in PressPopIME, and is the v1
+    // behaviour for multi-word input.
     private fun shapeMatch(): String? {
         if (swipePoints.size < 2) return null
         val centers = mutableMapOf<String, PointF>()
@@ -808,61 +867,28 @@ class KeyboardView @JvmOverloads constructor(
             }
         }
         if (centers.isEmpty()) return null
-        // First-letter filter, Oct 29, 2026: with a 20,000-word
-        // dictionary, scoring every candidate on every swipe would
-        // be ~20,000 x 32 point distances. Where a swipe starts is
-        // its most reliable part, so only score words starting on
-        // the key nearest the first swipe point — typically 700 to
-        // 1,500 words instead of 20,000, which keeps a swipe fast
-        // on the tablet. If no key is near the start point, fall
-        // back to scoring everything.
+        // Key width: median CHAR key width, px.
+        val keyWidths = keyRects.entries
+            .filter { it.key.action == KeyAction.CHAR && it.key.output.length == 1 }
+            .map { it.value.width().toFloat() }.sorted()
+        val keyW = if (keyWidths.isNotEmpty()) keyWidths[keyWidths.size / 2] else dp(60f)
+        if (keyW <= 0f) return null
         val first = swipePoints[0]
         var startLetter: String? = null
         var startDist = Float.MAX_VALUE
         for ((letter, center) in centers) {
             val d = hypot(first.x - center.x, first.y - center.y)
-            if (d < startDist) {
-                startDist = d
-                startLetter = letter
-            }
+            if (d < startDist) { startDist = d; startLetter = letter }
         }
-        if (startDist > dp(60f)) startLetter = null
-        // Lift-letter preference, Oct 29, 2026: the hello swipe
-        // that landed as "Hell" (debug: trace=hgftrertghjko,
-        // match=her, shape=hell, path=710dp, code 18) ended on
-        // o, but shape scoring alone picked hell — a shorter
-        // word sharing the h-e-l prefix, whose resampled path
-        // happens to sit closer to a wandering finger path.
-        // Where a swipe lifts is, like where it starts, one of
-        // its most reliable points, so it gets a say: if the
-        // best candidate ending on the lift key is within
-        // 30dp of the overall best, pick it instead. That fixes
-        // hell-over-hello without a hard last-letter gate,
-        // which would break words where the finger lifts early.
+        if (startDist > keyW * 0.9f) startLetter = null
         val lift = swipePoints.last()
         var liftLetter: String? = null
         var liftDist = Float.MAX_VALUE
         for ((letter, center) in centers) {
             val d = hypot(lift.x - center.x, lift.y - center.y)
-            if (d < liftDist) {
-                liftDist = d
-                liftLetter = letter
-            }
+            if (d < liftDist) { liftDist = d; liftLetter = letter }
         }
-        if (liftDist > dp(60f)) liftLetter = null
-        // Smooth the finger path first, Oct 29, 2026 (code 20):
-        // a fast swipe jitters, and a slow swipe is what Wilson
-        // said defeats the purpose. One 3-point moving-average
-        // pass (first/last points kept) takes the tremor out
-        // without moving the start or lift points.
-        // Code 25, swipe tolerance: two 3-point smoothing
-        // passes instead of one. A fast swipe jitters
-        // more than one pass removes, and that jitter
-        // inflates every candidate's Chamfer score, so a
-        // correct word that should land at 40dp lands at
-        // 55dp and misses the threshold. First and last
-        // points are kept by both passes, so start and
-        // lift letters do not move.
+        if (liftDist > keyW * 0.9f) liftLetter = null
         fun smoothOnce(pts: List<PointF>): List<PointF> {
             if (pts.size < 3) return pts
             val out = mutableListOf<PointF>()
@@ -878,43 +904,71 @@ class KeyboardView @JvmOverloads constructor(
         }
         val smoothed = smoothOnce(smoothOnce(swipePoints))
         val actual = resamplePath(smoothed, 32)
-        // Scoring, code 25 (swipe tolerance, Wilson on
-        // code 23: swipe still has to be too precise /
-        // too slow to land). Three changes, all in this
-        // one function so a failed swipe can be read
-        // from the debug line (shapeScore):
-        // (1) Threshold 45dp -> 60dp. 45dp rejected
-        // correct words whose path wandered even a
-        // little; with frequency ordering and the lift
-        // preference, 60dp lands more correct words
-        // than wrong ones. If wrong words start
-        // landing, this is the number to tighten back.
-        // (2) Two-pass start filter. The old code scored
-        // ONLY words starting on the key nearest the
-        // first touch point. Start a touch on the edge
-        // between two keys and the nearest key is the
-        // wrong one, so the correct word was never
-        // even scored. Pass 1 is the old fast path
-        // (nearest start letter only). If it fails,
-        // pass 2 scores words starting on any key
-        // center within 80dp of the start point
-        // (the neighboring keys), so an edge start
-        // still lands — slower only on failed swipes.
-        // (3) Lift-pick ceiling 60dp -> 70dp, matching
-        // the looser threshold.
-        fun scoreCandidates(allowedStarts: Set<String>?): Array<Any?> {
-            var best: String? = null
-            var bestScore = Float.MAX_VALUE
-            var liftBest: String? = null
-            var liftBestScore = Float.MAX_VALUE
+        var actualLen = 0f
+        for (i in 1 until smoothed.size) {
+            actualLen += hypot(smoothed[i].x - smoothed[i - 1].x, smoothed[i].y - smoothed[i - 1].y)
+        }
+        if (actualLen <= 0f) return null
+        // Speed: path length in dp over duration in ms.
+        val durationMs = if (swipeTimes.size >= 2) {
+            (swipeTimes.last() - swipeTimes.first()).coerceAtLeast(1L)
+        } else 0L
+        val speedDpPerMs = if (durationMs > 0L) {
+            (actualLen / resources.displayMetrics.density) / durationMs.toFloat()
+        } else 0f
+        val fast = speedDpPerMs > 1.2f
+        val orderedWeight = if (fast) 0.15f else 0.30f
+        val chamferWeight = 1f - orderedWeight
+        // Double-letter dwell: consecutive points near
+        // the same middle key, spanning 180ms or more.
+        val dwelled = mutableSetOf<String>()
+        if (swipeTimes.size == swipePoints.size && swipeTimes.size >= 3) {
+            var runLetter: String? = null
+            var runStart = 0L
+            var runLast = 0L
+            fun flushRun() {
+                if (runLetter != null && runLast - runStart >= 180L) {
+                    dwelled.add(runLetter!!)
+                }
+            }
+            for (i in swipePoints.indices) {
+                var near: String? = null
+                var nearDist = Float.MAX_VALUE
+                for ((letter, center) in centers) {
+                    val d = hypot(swipePoints[i].x - center.x, swipePoints[i].y - center.y)
+                    if (d < nearDist) { nearDist = d; near = letter }
+                }
+                if (nearDist > keyW * 0.5f) near = null
+                // First and last points are start/lift
+                // pauses, not doubles: ignore runs that
+                // touch either end of the stroke.
+                if (i == 0 || i == swipePoints.size - 1) near = null
+                if (near == runLetter) {
+                    runLast = swipeTimes[i]
+                } else {
+                    flushRun()
+                    runLetter = near
+                    runStart = swipeTimes[i]
+                    runLast = swipeTimes[i]
+                }
+            }
+            flushRun()
+        }
+        // Frequency rank map, built once per swipe.
+        val activeList = Dictionary.activeWords
+        val freqRank = HashMap<String, Int>(activeList.size * 2)
+        for (i in activeList.indices) {
+            if (!freqRank.containsKey(activeList[i])) freqRank[activeList[i]] = i
+        }
+        val personalSet = personalWords.toSet()
+        val prev = previousWord.lowercase()
+        val bigramNext = if (prev.isNotEmpty()) Dictionary.BIGRAMS[prev] ?: emptyList() else emptyList()
+        data class Scored(val word: String, val geometry: Float, val rescore: Float)
+        fun scoreCandidates(allowedStarts: Set<String>?): List<Scored> {
+            val out = mutableListOf<Scored>()
             val candidates = (personalWords + Dictionary.activeWords).distinct()
                 .filter { allowedStarts == null || it.isNotEmpty() && it[0].toString() in allowedStarts }
             for (cand in candidates) {
-                // Code 25, 4th commit: 2-letter words were
-                // excluded, so a swipe for "is" could only
-                // land via the letter trace — and a trace
-                // that crossed d on the way (i-d-s) landed
-                // as "ids". Shape matching now handles them.
                 if (cand.length < 2) continue
                 val path = mutableListOf<PointF>()
                 var ok = true
@@ -926,88 +980,89 @@ class KeyboardView @JvmOverloads constructor(
                     }
                 }
                 if (!ok || path.size < 2) continue
-                // Code 25, 4th commit (Wilson's test sentence
-                // on code 23: "The swipe is still very far
-                // from perfect" came out as "the sore ids
-                // soil vanuatu fat from percy"). Pure
-                // Chamfer ignores ORDER: a candidate whose
-                // centers merely lie near the path scores
-                // well even if its letters come in the
-                // wrong order along it — which is how a
-                // rare long word like "vanuatu" (v-a-n-u-a-t-u,
-                // centers near a v-e-r-y path) beat the
-                // common short word "very". Ordered scoring
-                // (resample the candidate path to 32 points
-                // and compare point-by-point, in order)
-                // punishes that, but on its own it punishes
-                // wandering loops too harshly. Combined
-                // score, 70% Chamfer / 30% ordered, keeps
-                // the tolerance and restores order.
+                var candLen = 0f
+                for (i in 1 until path.size) {
+                    candLen += hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+                }
+                // Path-length gate, loose on the long
+                // side (a wandering finger lengthens
+                // the actual path) and tighter on the
+                // short side (a short actual path
+                // cannot be a long word).
+                if (candLen > actualLen * 1.6f || candLen < actualLen * 0.25f) continue
                 val orderedPath = resamplePath(path, 32)
                 var orderedSum = 0f
                 for (i in actual.indices) {
-                    orderedSum += hypot(
-                        actual[i].x - orderedPath[i].x,
-                        actual[i].y - orderedPath[i].y
-                    )
+                    orderedSum += hypot(actual[i].x - orderedPath[i].x, actual[i].y - orderedPath[i].y)
                 }
                 val orderedScore = orderedSum / actual.size
-                val score = chamferScore(actual, path) * 0.7f + orderedScore * 0.3f
-                // Frequency preference: a later (less
-                // frequent) candidate only replaces the
-                // best if it scores at least 10dp better,
-                // so a common word wins a near tie.
-                if (score < bestScore - dp(10f) || best == null) {
-                    bestScore = score
-                    best = cand
+                val geometry = chamferScore(actual, path) * chamferWeight + orderedScore * orderedWeight
+                var rescore = geometry
+                if (cand.lowercase() in personalSet) rescore -= keyW * 0.30f
+                val rank = freqRank[cand.lowercase()]
+                if (rank != null && rank < 500) rescore -= keyW * 0.25f
+                else if (rank != null && rank < 4000) rescore -= keyW * 0.12f
+                if (cand.lowercase() in bigramNext) rescore -= keyW * 0.30f
+                for (dl in dwelled) {
+                    if (cand.lowercase().contains(dl + dl)) { rescore -= keyW * 0.25f; break }
                 }
-                if (liftLetter != null && cand.endsWith(liftLetter) && score < liftBestScore) {
-                    liftBestScore = score
-                    liftBest = cand
-                }
+                out.add(Scored(cand, geometry, rescore))
             }
-            return arrayOf(best, bestScore, liftBest, liftBestScore)
+            return out.sortedBy { it.geometry }.take(8)
         }
-        fun pickFrom(scored: Array<Any?>): Triple<String?, Float, Boolean> {
-            val best = scored[0] as String?
-            val bestScore = scored[1] as Float
-            val liftBest = scored[2] as String?
-            val liftBestScore = scored[3] as Float
-            var picked = best
-            var pickedScore = bestScore
-            var isLiftPick = false
-            if (liftLetter != null && liftBest != null && liftBest != best &&
-                liftBestScore <= bestScore + dp(30f) && liftBestScore <= dp(70f)
-            ) {
-                picked = liftBest
-                pickedScore = liftBestScore
-                isLiftPick = true
+        fun pickFrom(scored: List<Scored>): Scored? {
+            if (scored.isEmpty()) return null
+            val thresholdNormal = keyW * 0.90f
+            val thresholdLift = keyW * 1.05f
+            // Geometry gates first: boosts never rescue
+            // a word whose shape is too far off.
+            val passing = scored.filter { it.geometry <= thresholdLift }
+            if (passing.isEmpty()) return null
+            var best = passing.minByOrNull { it.rescore } ?: return null
+            if (best.geometry > thresholdNormal) {
+                // Only a lift-letter word may use the
+                // looser lift threshold.
+                if (liftLetter == null || !best.word.endsWith(liftLetter!!)) return null
             }
-            return Triple(picked, pickedScore, isLiftPick)
+            // Lift preference, graded: a lift-letter
+            // candidate within 0.45 key widths of the
+            // best rescore wins, as before, but now
+            // on the rescored list, not geometry alone.
+            if (liftLetter != null) {
+                val liftCand = passing.filter { it.word.endsWith(liftLetter!!) }
+                    .minByOrNull { it.rescore }
+                if (liftCand != null && liftCand != best &&
+                    liftCand.rescore <= best.rescore + keyW * 0.45f &&
+                    liftCand.geometry <= thresholdLift
+                ) {
+                    best = liftCand
+                }
+            }
+            return best
         }
         val firstStarts = if (startLetter == null) null else setOf(startLetter)
-        var (picked, pickedScore, isLiftPick) = pickFrom(scoreCandidates(firstStarts))
-        var threshold = if (isLiftPick) dp(70f) else dp(60f)
-        if ((picked == null || pickedScore > threshold) && startLetter != null) {
-            // Pass 2: neighboring start letters only.
+        var picked = pickFrom(scoreCandidates(firstStarts))
+        if (picked == null && startLetter != null) {
             val neighbors = centers.entries
-                .filter { hypot(it.value.x - first.x, it.value.y - first.y) <= dp(80f) }
+                .filter { hypot(it.value.x - first.x, it.value.y - first.y) <= keyW * 1.2f }
                 .sortedBy { hypot(it.value.x - first.x, it.value.y - first.y) }
                 .map { it.key }.filter { it != startLetter }.take(3).toSet()
             if (neighbors.isNotEmpty()) {
-                val (picked2, pickedScore2, isLiftPick2) = pickFrom(scoreCandidates(neighbors))
-                if (picked2 != null && (picked == null || pickedScore2 < pickedScore)) {
+                val picked2 = pickFrom(scoreCandidates(neighbors))
+                if (picked2 != null && (picked == null || picked2.rescore < picked!!.rescore)) {
                     picked = picked2
-                    pickedScore = pickedScore2
-                    isLiftPick = isLiftPick2
-                    threshold = if (isLiftPick) dp(70f) else dp(60f)
                 }
             }
         }
         lastShapeScoreDp = if (picked != null) {
-            (pickedScore / resources.displayMetrics.density).roundToInt()
+            (picked.geometry / resources.displayMetrics.density).roundToInt()
         } else null
-        return if (picked != null && pickedScore <= threshold) picked else null
+        if (picked == null) return null
+        val thresholdNormal = keyW * 0.90f
+        val thresholdLift = keyW * 1.05f
+        val okThreshold = picked.geometry <= thresholdNormal ||
+            (liftLetter != null && picked.word.endsWith(liftLetter!!) && picked.geometry <= thresholdLift)
+        return if (okThreshold) picked.word else null
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1015,13 +1070,17 @@ class KeyboardView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 downPoint.set(event.x, event.y)
                 swipePoints.clear()
+                swipeTimes.clear()
                 swipePoints.add(PointF(event.x, event.y))
+                swipeTimes.add(event.eventTime)
+                downTimeMs = event.eventTime
                 visitedLetters.clear()
                 cursorMode = false
                 spaceHeld = false
                 val hit = keyAt(event.x, event.y)
                 pressedKey = hit?.key
                 pressedRect = hit?.rect
+                downAction = hit?.key?.action
                 showKeyPopup()
                 if (hit?.key?.action == KeyAction.SPACE) {
                     spaceHeld = true
@@ -1107,6 +1166,7 @@ class KeyboardView @JvmOverloads constructor(
                     return true
                 }
                 swipePoints.add(PointF(event.x, event.y))
+                swipeTimes.add(event.eventTime)
                 if (hypot(event.x - downPoint.x, event.y - downPoint.y) > dp(20f)) {
                     spaceHeld = false
                     handler.removeCallbacks(spaceCursorStart)
@@ -1232,6 +1292,7 @@ class KeyboardView @JvmOverloads constructor(
                     )
                 }
                 swipePoints.clear()
+                swipeTimes.clear()
                 visitedLetters.clear()
                 invalidate()
                 if (event.action == MotionEvent.ACTION_CANCEL || wasCursor) return true
@@ -1244,6 +1305,24 @@ class KeyboardView @JvmOverloads constructor(
                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     playKeySound()
                     onKey?.invoke(variantKey)
+                    return true
+                }
+                // Code 36, editing gesture (Fleksy / ASK
+                // idea, in general terms): a quick slide
+                // left starting on Delete deletes a whole
+                // word, instead of one character. Gated
+                // hard so it cannot fire by accident: the
+                // finger must have started on Delete, slid
+                // left at least one key width, and lifted
+                // in under 450ms (before delete-repeat
+                // starts deleting characters on its own).
+                // A slow hold on Delete keeps its old
+                // repeat behaviour, unchanged.
+                if (downAction == KeyAction.DELETE &&
+                    event.eventTime - downTimeMs < 450L &&
+                    downPoint.x - event.x > dp(60f)
+                ) {
+                    onDeleteWord?.invoke()
                     return true
                 }
                 if (wasSwipe) {
