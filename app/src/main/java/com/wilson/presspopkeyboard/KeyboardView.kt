@@ -196,6 +196,9 @@ class KeyboardView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
+        // Code 31: also dismiss any key popup,
+        // so no bubble is left behind on detach.
+        dismissKeyPopup()
         try { soundPool?.release() } catch (e: Exception) { }
         soundPool = null
         popLoaded = false
@@ -312,10 +315,6 @@ class KeyboardView @JvmOverloads constructor(
         }
     }
 
-    override fun onDetachedFromWindow() {
-        dismissKeyPopup()
-        super.onDetachedFromWindow()
-    }
 
     // Swipe state
     private val swipePoints = mutableListOf<PointF>()
