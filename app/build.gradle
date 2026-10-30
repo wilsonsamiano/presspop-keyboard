@@ -88,8 +88,21 @@ android {
         // threshold for that pick, no hard last-letter gate).
         // Debug line now also shows shapeScore in dp.
         // Grok must build this exact version, not bump it again.
-        versionCode = 19
-        versionName = "beta 0.1.18"
+        // Bumped Oct 29, 2026 (Wilson, code 19 not yet built:
+        // swipe has to be very slow, which defeats the purpose,
+        // and predictive text must learn sentence building /
+        // grammar). (1) Swipe tolerance: path smoothing,
+        // symmetric Chamfer scoring instead of point-by-point,
+        // frequency tie-break within 10dp. (2) Next-word
+        // prediction: built-in BIGRAMS table + on-device
+        // learned pairs; strip offers next words after a
+        // space, tapping one commits it plus a space.
+        // Also: "defeats" added to the dictionary — it was
+        // missing from the 20k list, so it flipped to
+        // "defects" (Wilson's correction, Oct 29, 2026).
+        // Grok must build this exact version, not bump it again.
+        versionCode = 20
+        versionName = "beta 0.1.19"
     }
 
     signingConfigs {

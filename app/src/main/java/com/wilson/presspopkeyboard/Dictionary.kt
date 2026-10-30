@@ -3,15 +3,15 @@ package com.wilson.presspopkeyboard
 import kotlin.math.min
 
 /**
- * Small built-in English dictionary. It powers three features:
+ * Built-in English dictionary (20,084 words, code 17+). It powers:
  * 1. Predictive hit areas - which letters can follow the word so far.
  * 2. Swipe typing - which word a glide path most likely spells.
  * 3. Autocorrect + suggestions - completions and near-miss corrections.
- *
- * It is deliberately small (a few hundred common words) so the APK
- * stays tiny and everything runs on-device, with no network and no
- * data leaving the phone. Personal words (see PersonalDictionary)
- * are merged in front of this list, so the user's own words win.
+ * 4. Next-word prediction (code 20) - BIGRAMS below, plus pairs
+ *    the user actually types, learned on-device in PersonalDictionary.
+ * Everything runs on-device, with no network and no data leaving
+ * the phone. Personal words are merged in front of this list, so
+ * the user's own words win.
  */
 object Dictionary {
 
@@ -96,6 +96,137 @@ object Dictionary {
     ).distinct()
 
     val WORDS = (WordChunk0.LIST + WordChunk1.LIST + WordChunk2.LIST + WordChunk3.LIST + WordChunk4.LIST + WordChunk5.LIST + WordChunk6.LIST + WordChunk7.LIST + WordChunk8.LIST + WordChunk9.LIST + WordChunk10.LIST).distinct()
+
+
+    /**
+     * Next-word prediction, code 20 (Wilson: predictive text must
+     * learn proper sentence building, not just complete the word
+     * being typed). Common English word pairs, previous word ->
+     * most likely next words, in order. This is grammar in
+     * practice, not a language model: after "thank" comes "you",
+     * after "how" comes "are", after "going" comes "to", and so
+     * on. Learned pairs from the user's own typing (see
+     * PersonalDictionary.notePair) are offered BEFORE these, so
+     * the keyboard learns his sentences, not just these generic
+     * ones. Honest limit: this is a bigram table, not a full
+     * grammar engine — it knows the next word from the previous
+     * word only, not from the whole sentence. A word with no
+     * entry here simply gets no next-word suggestion.
+     */
+    val BIGRAMS: Map<String, List<String>> = mapOf(
+        "i" to listOf("am", "have", "think"),
+        "you" to listOf("are", "have", "can"),
+        "he" to listOf("is", "was", "has"),
+        "she" to listOf("is", "was", "has"),
+        "we" to listOf("are", "have", "will"),
+        "they" to listOf("are", "have", "will"),
+        "it" to listOf("is", "was", "will"),
+        "thank" to listOf("you", "god", "so"),
+        "thanks" to listOf("for", "so", "a"),
+        "how" to listOf("are", "do", "is"),
+        "what" to listOf("is", "are", "do"),
+        "when" to listOf("you", "i", "it"),
+        "where" to listOf("is", "are", "you"),
+        "why" to listOf("is", "are", "did"),
+        "who" to listOf("is", "are", "was"),
+        "good" to listOf("morning", "afternoon", "night"),
+        "happy" to listOf("birthday", "new", "to"),
+        "going" to listOf("to", "home", "back"),
+        "want" to listOf("to", "a", "you"),
+        "need" to listOf("to", "a", "help"),
+        "can" to listOf("you", "i", "be"),
+        "will" to listOf("be", "have", "go"),
+        "would" to listOf("like", "be", "love"),
+        "should" to listOf("be", "you", "we"),
+        "let" to listOf("me", "us", "go"),
+        "do" to listOf("you", "i", "not"),
+        "does" to listOf("it", "he", "she"),
+        "did" to listOf("you", "he", "she"),
+        "is" to listOf("a", "the", "not"),
+        "are" to listOf("you", "we", "they"),
+        "was" to listOf("a", "the", "not"),
+        "were" to listOf("you", "we", "they"),
+        "have" to listOf("a", "been", "to"),
+        "has" to listOf("been", "a", "the"),
+        "had" to listOf("a", "been", "the"),
+        "this" to listOf("is", "morning", "one"),
+        "that" to listOf("is", "was", "the"),
+        "there" to listOf("is", "are", "was"),
+        "here" to listOf("is", "are", "you"),
+        "my" to listOf("name", "wife", "family"),
+        "your" to listOf("name", "family", "time"),
+        "his" to listOf("name", "family", "car"),
+        "her" to listOf("name", "family", "car"),
+        "their" to listOf("name", "family", "car"),
+        "our" to listOf("family", "house", "time"),
+        "very" to listOf("good", "much", "happy"),
+        "really" to listOf("good", "want", "like"),
+        "not" to listOf("only", "sure", "going"),
+        "just" to listOf("want", "got", "a"),
+        "get" to listOf("up", "back", "the"),
+        "go" to listOf("to", "home", "back"),
+        "come" to listOf("back", "home", "on"),
+        "look" to listOf("at", "for", "like"),
+        "take" to listOf("a", "care", "the"),
+        "make" to listOf("sure", "a", "it"),
+        "see" to listOf("you", "the", "a"),
+        "know" to listOf("how", "what", "if"),
+        "think" to listOf("about", "it", "so"),
+        "feel" to listOf("like", "good", "better"),
+        "love" to listOf("you", "it", "this"),
+        "like" to listOf("to", "a", "this"),
+        "one" to listOf("of", "more", "day"),
+        "two" to listOf("of", "more", "days"),
+        "first" to listOf("time", "of", "one"),
+        "last" to listOf("night", "week", "year"),
+        "next" to listOf("week", "time", "day"),
+        "new" to listOf("year", "day", "one"),
+        "today" to listOf("is", "i", "we"),
+        "tomorrow" to listOf("morning", "i", "will"),
+        "yesterday" to listOf("was", "morning", "i"),
+        "morning" to listOf("good", "i", "at"),
+        "night" to listOf("good", "last", "at"),
+        "home" to listOf("from", "to", "at"),
+        "work" to listOf("from", "at", "on"),
+        "school" to listOf("at", "today", "after"),
+        "church" to listOf("at", "today", "tomorrow"),
+        "family" to listOf("is", "time", "today"),
+        "time" to listOf("to", "for", "is"),
+        "day" to listOf("is", "at", "today"),
+        "people" to listOf("are", "who", "like"),
+        "way" to listOf("to", "of", "back"),
+        "back" to listOf("home", "to", "at"),
+        "out" to listOf("of", "to", "the"),
+        "up" to listOf("to", "the", "a"),
+        "down" to listOf("to", "the", "a"),
+        "over" to listOf("the", "to", "a"),
+        "because" to listOf("i", "you", "it"),
+        "if" to listOf("you", "i", "we"),
+        "while" to listOf("i", "you", "we"),
+        "after" to listOf("the", "a", "lunch"),
+        "before" to listOf("the", "a", "bed"),
+        "during" to listOf("the", "my", "this"),
+        "through" to listOf("the", "a", "time"),
+        "without" to listOf("a", "the", "my"),
+        "with" to listOf("a", "the", "my"),
+        "for" to listOf("the", "a", "my"),
+        "from" to listOf("the", "a", "my"),
+        "by" to listOf("the", "a", "now"),
+        "at" to listOf("the", "home", "work"),
+        "in" to listOf("the", "a", "my"),
+        "on" to listOf("the", "a", "my"),
+        "to" to listOf("be", "go", "the"),
+        "of" to listOf("the", "course", "my"),
+        "and" to listOf("then", "the", "i"),
+        "but" to listOf("i", "it", "the"),
+        "so" to listOf("i", "you", "much"),
+        "please" to listOf("let", "call", "send"),
+        "sorry" to listOf("about", "for", "that"),
+        "a" to listOf("lot", "few", "good"),
+        "an" to listOf("hour", "idea", "old"),
+        "no" to listOf("problem", "worries", "idea"),
+        "yes" to listOf("please", "sir", "maam")
+    )
 
     fun isWord(word: String): Boolean = activeWords.contains(word.lowercase())
 

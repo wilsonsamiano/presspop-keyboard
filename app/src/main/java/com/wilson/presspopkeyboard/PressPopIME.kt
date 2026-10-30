@@ -75,6 +75,43 @@ class PressPopIME : InputMethodService() {
 
     private var lastSpaceTap = 0L
     private var lastCorrected: Pair<String, String>? = null // (typed, correction)
+
+    // Last word committed in this session, for next-word
+    // prediction (code 20). Updated whenever a word is
+    // committed by tapping, swiping, Space, or a suggestion.
+    private var lastCommittedWord: String = ""
+
+    // Record a committed word and learn the pair it forms
+    // with the previous committed word, on-device only.
+    private fun recordCommittedWord(word: String) {
+        val w = word.lowercase().trim()
+        if (w.isEmpty()) return
+        if (lastCommittedWord.isNotEmpty()) {
+            personal.notePair(lastCommittedWord, w)
+        }
+        lastCommittedWord = w
+    }
+
+    // Previous word before the cursor, for next-word
+    // prediction. Reads the field itself first, so it works
+    // even if the cursor moved; falls back to the last word
+    // this keyboard committed in this session.
+    private fun lastWordBeforeCursor(): String {
+        val ic = currentInputConnection
+        if (ic != null) {
+            try {
+                val before = ic.getTextBeforeCursor(80, 0)?.toString() ?: ""
+                val match = Regex("[A-Za-z']+\\s*$").find(before)
+                if (match != null) {
+                    val w = match.value.trim().lowercase()
+                    if (w.isNotEmpty()) return w
+                }
+            } catch (e: Exception) {
+                // Fall through to lastCommittedWord.
+            }
+        }
+        return lastCommittedWord
+    }
     private var darkMode = false
     // Auto-capitalization for this field: on for plain text, off for
     // passwords, email addresses, URLs, numbers and phone fields.
@@ -352,6 +389,7 @@ class PressPopIME : InputMethodService() {
             if (keyboardView.shiftOn && !keyboardView.shiftLock) {
                 keyboardView.shiftOn = false
             }
+            recordCommittedWord(word)
             personal.noteTyped(word)
             keyboardView.personalWords = personal.allPersonalWords()
             keyboardView.setTypedWord("")
@@ -744,6 +782,7 @@ class PressPopIME : InputMethodService() {
             return
         }
         lastSpaceTap = now
+        var committedWordThisSpace: String? = null
 
         if (word.isNotEmpty()) {
             // Autocorrect, unless the word is known, personal, or accented.
@@ -758,6 +797,7 @@ class PressPopIME : InputMethodService() {
                     ic.deleteSurroundingText(word.length, 0)
                     ic.commitText(finalCorrection, 1)
                     lastCorrected = word to finalCorrection
+                    committedWordThisSpace = finalCorrection
                     // Do NOT learn the typo as a personal word: a
                     // corrected typo is not a word the user wants to
                     // keep, and learning it after two corrections
@@ -771,6 +811,14 @@ class PressPopIME : InputMethodService() {
                 personal.noteTyped(word)
             }
             keyboardView.personalWords = personal.allPersonalWords()
+        }
+        // Record the committed word for next-word learning:
+        // the correction if one was made in this Space press,
+        // else the typed word. Using a local here, not
+        // lastCorrected, so a stale correction from an earlier
+        // word cannot be recorded for this word.
+        if (word.isNotEmpty()) {
+            recordCommittedWord(committedWordThisSpace ?: word)
         }
         ic.commitText(" ", 1)
         keyboardView.setTypedWord("")
@@ -805,6 +853,19 @@ class PressPopIME : InputMethodService() {
     private fun refreshSuggestions(word: String) {
         if (!::strip.isInitialized) return
         val personalWords = personal.allPersonalWords()
+        // Next-word prediction, code 20: when no word is being
+        // typed (right after a Space or a swiped word), the
+        // middle/right slots offer the most likely NEXT word,
+        // learned pairs first, then the generic BIGRAMS table.
+        // Tapping one commits it plus a space, so the next
+        // next-word offer appears at once.
+        val nextWords = if (word.isEmpty()) {
+            val prev = lastWordBeforeCursor()
+            if (prev.isNotEmpty()) {
+                (personal.learnedNextWords(prev) + (Dictionary.BIGRAMS[prev] ?: emptyList()))
+                    .distinct().take(2)
+            } else emptyList()
+        } else emptyList()
         val completions = if (word.length >= 2) {
             Dictionary.completions(word, personalWords)
         } else emptyList()
@@ -816,8 +877,8 @@ class PressPopIME : InputMethodService() {
             word.isNotEmpty() -> word
             else -> ""
         }
-        val middle = completions.getOrNull(0) ?: ""
-        val right = completions.getOrNull(1) ?: ""
+        val middle = if (word.isEmpty()) nextWords.getOrNull(0) ?: "" else completions.getOrNull(0) ?: ""
+        val right = if (word.isEmpty()) nextWords.getOrNull(1) ?: "" else completions.getOrNull(1) ?: ""
         val texts = listOf(left, middle, right)
         suggestionViews.forEachIndexed { i, view ->
             view.text = texts[i]
@@ -874,6 +935,21 @@ class PressPopIME : InputMethodService() {
             refreshSuggestions("")
             return
         }
+        // Next-word tap, code 20: no word is being typed, so
+        // this is a predicted next word, not a completion.
+        // Commit it plus a space, learn the pair, and offer the
+        // next next-word at once — otherwise tapping a next
+        // word would leave the cursor stuck right after it.
+        if (keyboardView.typedWord.isEmpty() && index != 0 && corrected == null) {
+            val nextWord = capitalizeForSentenceStart(suggestion, 0)
+            ic.commitText(nextWord + " ", 1)
+            recordCommittedWord(suggestion)
+            lastCorrected = null
+            keyboardView.setTypedWord("")
+            refreshSuggestions("")
+            updateAutoShift()
+            return
+        }
         val word = keyboardView.typedWord
         // Capitalize before deleting, for the same reason as above.
         val finalSuggestion = capitalizeForSentenceStart(suggestion, word.length)
@@ -884,6 +960,7 @@ class PressPopIME : InputMethodService() {
         if (keyboardView.shiftOn && !keyboardView.shiftLock) {
             keyboardView.shiftOn = false
         }
+        recordCommittedWord(suggestion)
         lastCorrected = null
         keyboardView.setTypedWord(suggestion)
         refreshSuggestions(suggestion)

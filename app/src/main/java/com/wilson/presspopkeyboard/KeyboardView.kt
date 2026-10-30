@@ -626,6 +626,67 @@ class KeyboardView @JvmOverloads constructor(
         return out
     }
 
+    // Point-to-segment distance, for Chamfer shape scoring.
+    private fun pointToSegmentDistance(
+        px: Float, py: Float,
+        ax: Float, ay: Float, bx: Float, by: Float
+    ): Float {
+        val dx = bx - ax
+        val dy = by - ay
+        val lenSq = dx * dx + dy * dy
+        val t = if (lenSq == 0f) 0f else {
+            ((px - ax) * dx + (py - ay) * dy) / lenSq
+        }.coerceIn(0f, 1f)
+        val cx = ax + t * dx
+        val cy = ay + t * dy
+        return hypot(px - cx, py - cy)
+    }
+
+    // Symmetric Chamfer distance between a swipe path and a
+    // candidate word's key-center path: mean distance from each
+    // actual point to the nearest candidate segment, averaged
+    // with mean distance from each candidate center to the
+    // nearest actual segment. Unlike point-by-point scoring,
+    // a wandering loop or an extra curve does not shift every
+    // later point out of alignment — it only adds distance
+    // where the loop actually goes. That is what makes a fast,
+    // sloppy swipe still land, instead of requiring a slow,
+    // precise trace (Wilson, Oct 29, 2026: slow swiping
+    // defeats the purpose of swipe).
+    private fun chamferScore(
+        actual: List<PointF>, candPath: List<PointF>
+    ): Float {
+        if (actual.isEmpty() || candPath.isEmpty()) return Float.MAX_VALUE
+        var sumActual = 0f
+        for (pt in actual) {
+            var best = Float.MAX_VALUE
+            for (i in 1 until candPath.size) {
+                val d = pointToSegmentDistance(
+                    pt.x, pt.y,
+                    candPath[i - 1].x, candPath[i - 1].y,
+                    candPath[i].x, candPath[i].y
+                )
+                if (d < best) best = d
+            }
+            if (candPath.size == 1) best = hypot(pt.x - candPath[0].x, pt.y - candPath[0].y)
+            sumActual += best
+        }
+        var sumCand = 0f
+        for (pt in candPath) {
+            var best = Float.MAX_VALUE
+            for (i in 1 until actual.size) {
+                val d = pointToSegmentDistance(
+                    pt.x, pt.y,
+                    actual[i - 1].x, actual[i - 1].y,
+                    actual[i].x, actual[i].y
+                )
+                if (d < best) best = d
+            }
+            sumCand += best
+        }
+        return (sumActual / actual.size + sumCand / candPath.size) / 2f
+    }
+
     private fun shapeMatch(): String? {
         if (swipePoints.size < 2) return null
         val centers = mutableMapOf<String, PointF>()
@@ -677,14 +738,32 @@ class KeyboardView @JvmOverloads constructor(
             }
         }
         if (liftDist > dp(60f)) liftLetter = null
-        val actual = resamplePath(swipePoints, 32)
+        // Smooth the finger path first, Oct 29, 2026 (code 20):
+        // a fast swipe jitters, and a slow swipe is what Wilson
+        // said defeats the purpose. One 3-point moving-average
+        // pass (first/last points kept) takes the tremor out
+        // without moving the start or lift points.
+        val smoothed = if (swipePoints.size < 3) swipePoints else {
+            val out = mutableListOf<PointF>()
+            out.add(swipePoints[0])
+            for (i in 1 until swipePoints.size - 1) {
+                out.add(PointF(
+                    (swipePoints[i - 1].x + swipePoints[i].x * 2f + swipePoints[i + 1].x) / 4f,
+                    (swipePoints[i - 1].y + swipePoints[i].y * 2f + swipePoints[i + 1].y) / 4f
+                ))
+            }
+            out.add(swipePoints.last())
+            out
+        }
+        val actual = resamplePath(smoothed, 32)
         var best: String? = null
         var bestScore = Float.MAX_VALUE
+        var bestIndex = Int.MAX_VALUE
         var liftBest: String? = null
         var liftBestScore = Float.MAX_VALUE
         val candidates = (personalWords + Dictionary.activeWords).distinct()
             .filter { startLetter == null || it.startsWith(startLetter) }
-        for (cand in candidates) {
+        for ((candIndex, cand) in candidates.withIndex()) {
             if (cand.length < 3) continue
             val path = mutableListOf<PointF>()
             var ok = true
@@ -696,15 +775,21 @@ class KeyboardView @JvmOverloads constructor(
                 }
             }
             if (!ok || path.size < 2) continue
-            val candResampled = resamplePath(path, 32)
-            var score = 0f
-            for (i in actual.indices) {
-                score += hypot(actual[i].x - candResampled[i].x, actual[i].y - candResampled[i].y)
-            }
-            score /= actual.size
-            if (score < bestScore) {
+            // Chamfer score, code 20: replaces point-by-point
+            // scoring, which punished any wandering loop by
+            // shifting all later points. Frequency tie-break:
+            // the candidate list is personal words first, then
+            // the 20,000-word list in frequency order, so when
+            // two scores are within 10dp, the earlier (more
+            // frequent / more personal) word wins instead of
+            // whichever happened to score a fraction lower.
+            val score = chamferScore(actual, path)
+            if (score < bestScore - dp(10f) ||
+                (score <= bestScore + dp(10f) && candIndex < bestIndex)
+            ) {
                 bestScore = score
                 best = cand
+                bestIndex = candIndex
             }
             if (liftLetter != null && cand.endsWith(liftLetter) && score < liftBestScore) {
                 liftBestScore = score

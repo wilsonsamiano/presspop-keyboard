@@ -60,4 +60,40 @@ class PersonalDictionary(context: Context) {
     }
 
     fun isPersonal(word: String): Boolean = word.lowercase() in allPersonalWords()
+
+    // Next-word pairs the user actually types, code 20.
+    // Stored on-device only, as "prev:next:count". A pair is
+    // learned from the first time it is committed (count 1),
+    // and ordered by count, so the user's own sentence habits
+    // win over the generic BIGRAMS table in Dictionary.
+    fun notePair(prev: String, next: String) {
+        val a = prev.lowercase()
+        val b = next.lowercase()
+        if (a.isEmpty() || b.isEmpty()) return
+        if (!a.all { it.isLetter() } || !b.all { it.isLetter() }) return
+        val entries = (prefs.getStringSet("bigrams", emptySet()) ?: emptySet()).toMutableSet()
+        val old = entries.firstOrNull { it.startsWith("$a:$b:") }
+        val oldCount = old?.substringAfterLast(":")?.toIntOrNull() ?: 0
+        if (old != null) entries.remove(old)
+        entries.add("$a:$b:${oldCount + 1}")
+        // Cap at 500 pairs: drop the least-used ones first.
+        if (entries.size > 500) {
+            val sorted = entries.sortedBy { it.substringAfterLast(":").toIntOrNull() ?: 0 }
+            for (drop in sorted.take(entries.size - 500)) entries.remove(drop)
+        }
+        prefs.edit().putStringSet("bigrams", entries).apply()
+    }
+
+    /** Most-used next words after [prev], most-used first. */
+    fun learnedNextWords(prev: String): List<String> {
+        val a = prev.lowercase()
+        val entries = prefs.getStringSet("bigrams", emptySet()) ?: emptySet()
+        return entries.mapNotNull { entry ->
+            val parts = entry.split(":")
+            if (parts.size == 3 && parts[0] == a) {
+                parts[1] to (parts[2].toIntOrNull() ?: 0)
+            } else null
+        }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+            .map { it.first }
+    }
 }
