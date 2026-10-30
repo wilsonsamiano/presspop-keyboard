@@ -274,6 +274,30 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
+        // Copy last debug line, Oct 29, 2026 (Wilson): the
+        // in-keyboard banner only shows for 5 seconds, too fast
+        // to copy by hand. Reproduce the problem once with debug
+        // on, open this app, tap this button, then paste the line
+        // into a message or email. If nothing has been shown yet,
+        // it says so instead of copying a blank line.
+        findViewById<Button>(R.id.copyDebugButton).setOnClickListener {
+            val line = DebugMode.lastLine
+            if (line.isNullOrEmpty()) {
+                Toast.makeText(
+                    this,
+                    "No debug line yet. Turn debug on, reproduce it once, then tap this.",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                val clipboard =
+                    getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(
+                    android.content.ClipData.newPlainText("PressPop debug", line)
+                )
+                Toast.makeText(this, "Debug line copied. Paste it to send it.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         // Key tap pop sounds (on by default): a short pop on every
         // key tap, with a toggle here. Takes effect the next time
         // the keyboard opens.

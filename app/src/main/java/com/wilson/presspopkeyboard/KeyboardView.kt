@@ -128,6 +128,7 @@ class KeyboardView @JvmOverloads constructor(
 
     fun showDebug(message: String) {
         if (!DebugMode.isOn(context)) return
+        DebugMode.record(message)
         debugLine = message
         removeCallbacks(clearDebug)
         postDelayed(clearDebug, 5000)

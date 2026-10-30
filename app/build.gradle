@@ -26,13 +26,13 @@ android {
         // covering swipe, autocorrect, and suggestion taps, so it
         // can stay in the app for customer support. Grok must build
         // this exact version, not bump it again locally.
-        // Bumped Oct 29, 2026: Wilson wants a TAP, not a sine pop,
-        // one register lower (325 Hz, not 650 Hz), short and
-        // percussive, not spacey. Only the sound changed from
-        // code 11; the in-keyboard debug banner is unchanged.
+        // Bumped Oct 29, 2026: Wilson agreed to a "Copy last debug
+        // line" button — the banner only shows for 5 seconds, too
+        // fast to copy by hand. DebugMode now remembers the last
+        // line, and a button in the app copies it to the clipboard.
         // Grok must build this exact version, not bump it again.
-        versionCode = 12
-        versionName = "beta 0.1.11"
+        versionCode = 13
+        versionName = "beta 0.1.12"
     }
 
     signingConfigs {

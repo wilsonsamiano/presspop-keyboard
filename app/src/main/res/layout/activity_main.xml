@@ -243,6 +243,12 @@
         android:text="Debug mode: Off (tap to turn on)" />
 
     <Button
+        android:id="@+id/copyDebugButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Copy last debug line" />
+
+    <Button
         android:id="@+id/keySoundsButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

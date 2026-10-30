@@ -61,8 +61,22 @@ object DebugMode {
         }
     }
 
+    // Last debug line, Oct 29, 2026 (Wilson): the banner only
+    // shows for 5 seconds, too fast to copy by hand. Every
+    // readout is remembered here, so the app's "Copy last debug
+    // line" button can put it on the clipboard afterwards, ready
+    // to paste into a message or email. Only the single line is
+    // kept — no history, no typed sentences, nothing else.
+    var lastLine: String? = null
+        private set
+
+    fun record(message: String) {
+        lastLine = message
+    }
+
     fun toast(context: Context, message: String) {
         if (isOn(context)) {
+            record(message)
             // Top of screen, Oct 29, 2026: a default Toast sits at
             // the BOTTOM of the screen, and the keyboard window
             // covers that exact spot while typing — so the debug
