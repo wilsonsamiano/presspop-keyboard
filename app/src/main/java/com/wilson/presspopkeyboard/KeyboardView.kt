@@ -629,10 +629,30 @@ class KeyboardView @JvmOverloads constructor(
             }
         }
         if (centers.isEmpty()) return null
+        // First-letter filter, Oct 29, 2026: with a 20,000-word
+        // dictionary, scoring every candidate on every swipe would
+        // be ~20,000 x 32 point distances. Where a swipe starts is
+        // its most reliable part, so only score words starting on
+        // the key nearest the first swipe point — typically 700 to
+        // 1,500 words instead of 20,000, which keeps a swipe fast
+        // on the tablet. If no key is near the start point, fall
+        // back to scoring everything.
+        val first = swipePoints[0]
+        var startLetter: String? = null
+        var startDist = Float.MAX_VALUE
+        for ((letter, center) in centers) {
+            val d = hypot(first.x - center.x, first.y - center.y)
+            if (d < startDist) {
+                startDist = d
+                startLetter = letter
+            }
+        }
+        if (startDist > dp(60f)) startLetter = null
         val actual = resamplePath(swipePoints, 32)
         var best: String? = null
         var bestScore = Float.MAX_VALUE
         val candidates = (personalWords + Dictionary.activeWords).distinct()
+            .filter { startLetter == null || it.startsWith(startLetter) }
         for (cand in candidates) {
             if (cand.length < 3) continue
             val path = mutableListOf<PointF>()

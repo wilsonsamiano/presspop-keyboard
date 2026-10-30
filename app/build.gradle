@@ -60,8 +60,19 @@ android {
         // and other wrong words — predictive completions use the
         // same list, so they improve too.
         // Grok must build this exact version, not bump it again.
-        versionCode = 16
-        versionName = "beta 0.1.15"
+        // Bumped Oct 29, 2026 (Wilson: "if we are trying to
+        // compete, we need to be at 20k"): dictionary replaced with
+        // the public 20,000 most-common-English-words frequency
+        // list, filtered to a-z words (single letters kept only for
+        // a and i), plus the 108 custom words from the old list
+        // that were not in it (contractions, eala, swipe, spacebar,
+        // autocorrect, etc.) — 20,084 unique English words in total,
+        // split into 11 chunk objects so no initializer blows the
+        // 64KB method-size limit. Shape matching now filters by
+        // first letter first, so a 20k dictionary stays fast.
+        // Grok must build this exact version, not bump it again.
+        versionCode = 17
+        versionName = "beta 0.1.16"
     }
 
     signingConfigs {
