@@ -125,8 +125,8 @@ android {
         // (password fields exempt), so a typo like
         // "somtimes" at end of line becomes "sometimes".
         // Grok must build this exact version, not bump it again.
-        versionCode = 21
-        versionName = "beta 0.1.20"
+        versionCode = 22
+        versionName = "beta 0.1.21"
     }
 
     signingConfigs {
@@ -165,3 +165,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
 }
+
+// Code 22, Oct 29, 2026 (Wilson): learned next-word pairs
+// are no longer capped at 500 — the cap is removed, so
+// his own sentence habits are never thrown away. No
+// other feature changes from code 21.

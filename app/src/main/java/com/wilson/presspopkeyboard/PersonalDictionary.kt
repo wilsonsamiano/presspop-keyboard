@@ -61,7 +61,8 @@ class PersonalDictionary(context: Context) {
 
     fun isPersonal(word: String): Boolean = word.lowercase() in allPersonalWords()
 
-    // Next-word pairs the user actually types, code 20.
+    // Next-word pairs the user actually types, code 20,
+    // uncapped in code 22.
     // Stored on-device only, as "prev:next:count". A pair is
     // learned from the first time it is committed (count 1),
     // and ordered by count, so the user's own sentence habits
@@ -76,11 +77,14 @@ class PersonalDictionary(context: Context) {
         val oldCount = old?.substringAfterLast(":")?.toIntOrNull() ?: 0
         if (old != null) entries.remove(old)
         entries.add("$a:$b:${oldCount + 1}")
-        // Cap at 500 pairs: drop the least-used ones first.
-        if (entries.size > 500) {
-            val sorted = entries.sortedBy { it.substringAfterLast(":").toIntOrNull() ?: 0 }
-            for (drop in sorted.take(entries.size - 500)) entries.remove(drop)
-        }
+        // No cap, code 22 (Wilson: "Why cap it? Please
+        // undo that."): the old code dropped the least-used
+        // pairs once 500 were stored, which threw away his
+        // own learned sentence habits for no device reason.
+        // Each pair is only about 20 bytes on-device, so
+        // even 10,000 learned pairs is a few hundred KB —
+        // nothing on a tablet with gigabytes free. The only
+        // limit now is device storage itself, not PressPop.
         prefs.edit().putStringSet("bigrams", entries).apply()
     }
 
