@@ -8,7 +8,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.PointF
+import android.graphics.LinearGradient
 import android.graphics.RectF
+import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -30,12 +32,11 @@ import kotlin.math.roundToInt
  * Features in this one view:
  * - iPhone-style key popups on EVERY key (letters, space, shift,
  *   delete, 123, enter, emoji). Press, slide, lift to commit.
- * - Predictive hit areas (the original-iPhone trick): the visible
- *   keys never move or resize, but the invisible touch zone of the
- *   most likely next letter is widened, so a finger landing between
- *   two keys picks the letter the dictionary expects. A dead-centre
- *   tap on a neighbour still wins, because distance still matters.
- *   See Dictionary.nextLetters().
+ * - Plain nearest-key taps, Nov 2, 2026: the old predictive
+ *   hit widening was removed (it stole near-miss taps from
+ *   the key Wilson actually aimed at). A tap inside a key
+ *   wins; a tap in a gap goes to the nearest key, with no
+ *   boost for predicted letters or space.
  * - Swipe / glide typing: glide across letters, lift, and the traced
  *   path is matched against the dictionary (personal words first).
  * - Emoji page, via the smiley key. Emoji is a mode like 123, not
@@ -253,6 +254,15 @@ class KeyboardView @JvmOverloads constructor(
     private var pressedKey: Key? = null
     private var pressedRect: RectF? = null
 
+    // Flick state, Nov 2, 2026: the key the finger
+    // started on, and the secondary symbol it flicked
+    // to, if any. A flick is a short, mostly-vertical
+    // pull down on one letter key (see ACTION_MOVE):
+    // it must NOT turn into a glide word, and it must
+    // NOT trigger the long-press accent picker.
+    private var downKey: Key? = null
+    private var flickSecondary: String? = null
+
     // Code 31 (Wilson, Oct 29, 2026): key popups are
     // now their own PopupWindow, not canvas drawing.
     // The canvas version had to clamp a top-row
@@ -294,14 +304,22 @@ class KeyboardView @JvmOverloads constructor(
             dismissKeyPopup()
             val density = resources.displayMetrics.density
             val bubble = TextView(context).apply {
-                text = key.popupLabel
+                // While flicking, the popup shows the
+                // secondary symbol, not the letter —
+                // otherwise the popup would say "q"
+                // while a "1" is about to be typed.
+                text = flickSecondary ?: key.popupLabel
                 textSize =
                     if (mode == KeyboardMode.EMOJI && key.action == KeyAction.CHAR) 44f else 32f
                 gravity = Gravity.CENTER
                 setSingleLine(true)
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10 * density
+                    // Same shape as the main keys, Nov 2, 2026:
+                    // 8dp corners (was 10dp), so the popup
+                    // above a pressed key reads as a larger
+                    // version of that key, LeanType-style.
+                    cornerRadius = 8 * density
                     setColor(
                         if (darkMode) Color.parseColor("#374151")
                         else Color.WHITE
@@ -384,6 +402,28 @@ class KeyboardView @JvmOverloads constructor(
     }
 
     companion object {
+        // Flick secondary symbols, Nov 2, 2026 (Wilson):
+        // the little symbol in the corner of each letter
+        // key, typed by pulling DOWN on that key, without
+        // switching to the 123 page. This is the
+        // Gboard / iPad flick gesture, and the same
+        // hint idea HeliBoard / LeanType use: a small
+        // symbol shown on the key itself. Top row is
+        // the digits, lower rows are the common
+        // punctuation for that letter. The map is
+        // drawn on the keys (see onDraw), so it does
+        // not have to be memorised. Only Letters
+        // mode has flick secondaries; 123 / #+= keys
+        // already are the symbol, so they need none.
+        val SECONDARY = mapOf(
+            'q' to "1", 'w' to "2", 'e' to "3", 'r' to "4", 't' to "5",
+            'y' to "6", 'u' to "7", 'i' to "8", 'o' to "9", 'p' to "0",
+            'a' to "@", 's' to "$", 'd' to "#", 'f' to "%", 'g' to "&",
+            'h' to "-", 'j' to "+", 'k' to "(", 'l' to ")",
+            'z' to "*", 'x' to "\"", 'c' to "'", 'v' to ":",
+            'b' to ";", 'n' to "!", 'm' to "?"
+        )
+
         val ACCENTS = mapOf(
             'a' to listOf("à", "á", "â", "ä", "ã", "å", "æ"),
             'e' to listOf("è", "é", "ê", "ë"),
@@ -561,7 +601,12 @@ class KeyboardView @JvmOverloads constructor(
 
     private fun layoutKeys() {
         if (width == 0) return
-        gap = dp(6f)
+        // LeanType-style geometry, Nov 2, 2026 (Wilson):
+        // tighter 4dp gaps between keys (was 6dp), so the
+        // keys themselves fill more of the keyboard and
+        // the layout reads like LeanType/AOSP, not like
+        // widely spaced iPhone-style keys.
+        gap = dp(4f)
         // Fixed-height keyboard, Oct 29, 2026: the view used to
         // measure to its current row count, so switching Letters
         // (5 rows with the number row on) to 123 (4 rows) shrank the
@@ -622,40 +667,32 @@ class KeyboardView @JvmOverloads constructor(
         // layoutKeys. 5 is the most rows any mode uses (Letters with
         // the number row, and the number pad), so nothing ever grows
         // or shrinks when switching modes.
-        val h = (dp(52f) * 5 + dp(6f) * 6).roundToInt()
+        val h = (dp(52f) * 5 + dp(4f) * 6).roundToInt()
         setMeasuredDimension(w, h)
     }
 
     /**
-     * Predictive hit test. Returns the key whose (possibly widened)
-     * touch zone best matches the touch. Predicted next letters get
-     * a 1.7x distance advantage, but never shrink any key below its
-     * visible rect: a dead-centre tap still has distance 0 and wins.
+     * Plain nearest-key hit test, reverted Nov 2, 2026.
      *
-     * Gap fixed Oct 29, 2026: the prediction only covered letters.
-     * When the word just typed is already a complete dictionary or
-     * personal word, the most likely next key is SPACE, not another
-     * letter — and "b" sits directly above the spacebar, so a low
-     * thumb tap aimed at space kept landing on "b". Space now gets
-     * a 2.0x advantage in exactly that case, so a tap between "b"
-     * and space goes to space. A dead-centre tap on "b" still wins,
-     * as it should — no prediction overrides a clear tap.
+     * History: Oct 28-29, 2026 added predictive widening —
+     * predicted next letters got a 1.7x distance advantage
+     * and space got an unconditional 2.0x advantage, to
+     * catch taps in the gap between "v"/"b" and space.
+     * Wilson reported Nov 2, 2026 that the widening made
+     * typing WORSE: a precise tap could be stolen by the
+     * predicted key or by space. Lesson, generalized:
+     * never let a prediction override the key the user
+     * actually aimed at on a near-miss.
      *
-     * Widened again Oct 29, 2026, from Wilson's report that he keeps
-     * hitting "v" for spacebar: "v" also sits directly above the
-     * spacebar, and the old boost only applied after a complete
-     * word. Space now gets the 2.0x advantage unconditionally, in
-     * every mode and at any point in a word, so a tap in the gap
-     * between "v" (or "b", "c", "n", "m") and space goes to space.
-     * A dead-centre tap on "v" itself still has distance 0 and
-     * still wins — the boost only decides near-misses, which is
-     * exactly the case that was going wrong.
+     * So this is now what LeanType/AOSP does: the key
+     * whose visible rect is nearest the touch wins, with
+     * no boost for any key. A tap inside a key still has
+     * distance 0 and wins outright; a tap in a gap goes
+     * to the nearest key, not the predicted one.
+     * Do NOT re-add a boost here without Wilson's word.
      */
     private fun keyAt(x: Float, y: Float): KeyRect? {
         if (keyRects.isEmpty()) return null
-        val predicted = if (mode == KeyboardMode.LETTERS) {
-            Dictionary.nextLetters(typedWord, personalWords)
-        } else emptySet()
         var best: KeyRect? = null
         var bestScore = Float.MAX_VALUE
         for (kr in keyRects) {
@@ -670,20 +707,12 @@ class KeyboardView @JvmOverloads constructor(
                 else -> 0f
             }
             val dist = hypot(dx, dy)
-            val boost = when {
-                kr.key.action == KeyAction.SPACE -> 2.0f
-                kr.key.action == KeyAction.CHAR &&
-                    kr.key.output.length == 1 &&
-                    kr.key.output[0].lowercaseChar() in predicted -> 1.7f
-                else -> 1f
-            }
-            val score = dist / boost
-            if (score < bestScore) {
-                bestScore = score
+            if (dist < bestScore) {
+                bestScore = dist
                 best = kr
             }
         }
-        // Accept only if reasonably near a key (expanded zone included).
+        // Accept only if reasonably near a key.
         return if (bestScore <= dp(26f)) best else null
     }
 
@@ -1100,6 +1129,14 @@ class KeyboardView @JvmOverloads constructor(
                 pressedKey = hit?.key
                 pressedRect = hit?.rect
                 downAction = hit?.key?.action
+                // Flick tracking starts here, and only
+                // here: downKey is the one key a flick
+                // can come from, whatever key the
+                // finger later slides over.
+                downKey = if (mode == KeyboardMode.LETTERS &&
+                    hit?.key?.action == KeyAction.CHAR
+                ) hit.key else null
+                flickSecondary = null
                 showKeyPopup()
                 if (hit?.key?.action == KeyAction.SPACE) {
                     spaceHeld = true
@@ -1121,6 +1158,42 @@ class KeyboardView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                // Flick to a secondary symbol, Nov 2, 2026:
+                // pull DOWN on a letter key to type the
+                // small symbol in its corner. Gated hard
+                // so a glide word cannot become a flick
+                // by accident: the pull must be short
+                // (under 350 ms), mostly vertical (down
+                // more than 2.5x the sideways drift, and
+                // at least 18dp down), and it must start
+                // on a letter key with no second letter
+                // traced yet. A glide to the letter in
+                // the row below is diagonal (its row is
+                // inset by about half a key), so it fails
+                // the vertical test and traces normally.
+                // Once a flick is set, later moves are
+                // ignored: the finger stays on this
+                // gesture until it lifts, it does not
+                // start tracing a word or switch keys.
+                if (flickSecondary != null) return true
+                if (!variantMode && !cursorMode && downKey != null &&
+                    visitedLetters.size <= 1
+                ) {
+                    val dx = event.x - downPoint.x
+                    val dy = event.y - downPoint.y
+                    val secondary = downKey!!.output.lowercase()
+                        .firstOrNull()?.let { SECONDARY[it] }
+                    if (secondary != null &&
+                        dy > dp(18f) && dy > kotlin.math.abs(dx) * 2.5f &&
+                        event.eventTime - downTimeMs < 350L
+                    ) {
+                        flickSecondary = secondary
+                        handler.removeCallbacks(longPressRunnable)
+                        showKeyPopup()
+                        invalidate()
+                        return true
+                    }
+                }
                 // A slow swipe start could trigger the long-press
                 // accent picker (500 ms on one key) and then stay
                 // trapped in it, so the swipe never traced at all.
@@ -1314,7 +1387,26 @@ class KeyboardView @JvmOverloads constructor(
                 swipeTimes.clear()
                 visitedLetters.clear()
                 invalidate()
+                // Flick commit: the secondary symbol, not
+                // the letter. It is punctuation or a
+                // digit, so it ends the current word
+                // exactly like a punctuation tap does,
+                // and it never goes through autocorrect
+                // as if it were a letter. A cancelled
+                // gesture types nothing.
+                val flick = flickSecondary
+                flickSecondary = null
+                downKey = null
                 if (event.action == MotionEvent.ACTION_CANCEL || wasCursor) return true
+                if (flick != null) {
+                    typedWord = ""
+                    typedWordHadUpper = false
+                    noteTypedWordChange()
+                    performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    playKeySound()
+                    onKey?.invoke(Key(flick, flick, KeyAction.CHAR, flick))
+                    return true
+                }
                 if (wasVariant && pickedVariant != null) {
                     val variantKey = Key(pickedVariant, pickedVariant, KeyAction.CHAR, pickedVariant)
                     if (mode == KeyboardMode.LETTERS) {
@@ -1468,14 +1560,57 @@ class KeyboardView @JvmOverloads constructor(
 
         for ((key, rect) in keyRects) {
             val isPressed = key == pressedKey
-            keyPaint.color = when {
-                key.action == KeyAction.SHIFT && shiftOn -> Color.parseColor("#3B82F6")
-                isPressed -> if (darkMode) Color.parseColor("#4B5563") else Color.parseColor("#E5E7EB")
-                key.action in listOf(KeyAction.SHIFT, KeyAction.DELETE, KeyAction.MODE, KeyAction.ENTER) ->
-                    if (darkMode) Color.parseColor("#4B5563") else Color.parseColor("#AEB3BA")
-                else -> if (darkMode) Color.parseColor("#374151") else Color.WHITE
+            // Manna & Milk 3D keys, Nov 2, 2026 (Wilson):
+            // Manna's buttons are a face over a solid
+            // dark edge — CSS `box-shadow: 0 4px 0
+            // var(--edge)`, with a dark border — and on
+            // press the face sinks 2px and the edge
+            // shrinks to 2px. Translated to canvas:
+            // the edge is a rounded rect 3dp below the
+            // face, so a 3dp dark strip shows under
+            // every key (the 4dp LeanType gap leaves
+            // 1dp of background under it, so rows do
+            // not merge). A pressed face moves down
+            // 2dp while its edge stays put, so the
+            // visible strip shrinks to 1dp — the same
+            // sinking press. The face itself is a
+            // light-top to darker-bottom gradient, so
+            // the top catches the light like a raised
+            // button. Dark mode uses Manna's dark
+            // recipe: slate face (#2A3546) over a
+            // near-black edge (#0C121A), not just a
+            // darker flat grey. Corners and gaps stay
+            // LeanType: 8dp corners, 4dp gaps.
+            val isAction = key.action in listOf(
+                KeyAction.SHIFT, KeyAction.DELETE,
+                KeyAction.MODE, KeyAction.ENTER
+            )
+            val isShiftOn = key.action == KeyAction.SHIFT && shiftOn
+            val edgeColor = if (darkMode) "#0C121A" else "#243044"
+            val (faceTop, faceBottom) = when {
+                isShiftOn && isPressed -> "#3B82F6" to "#1D4ED8"
+                isShiftOn -> "#60A5FA" to "#3B82F6"
+                isPressed && darkMode -> "#232E3D" to "#141B26"
+                isPressed -> "#E5E7EB" to "#D1D5DB"
+                isAction && darkMode -> "#4B5563" to "#374151"
+                isAction -> "#C2C7CE" to "#AEB3BA"
+                darkMode -> "#2A3546" to "#1F2937"
+                else -> "#FFFFFF" to "#E7E9EC"
             }
-            canvas.drawRoundRect(rect, dp(6f), dp(6f), keyPaint)
+            val edgeRect = RectF(rect).apply { offset(0f, dp(3f)) }
+            val faceRect = RectF(rect).apply {
+                if (isPressed) offset(0f, dp(2f))
+            }
+            keyPaint.shader = null
+            keyPaint.color = Color.parseColor(edgeColor)
+            canvas.drawRoundRect(edgeRect, dp(8f), dp(8f), keyPaint)
+            keyPaint.shader = LinearGradient(
+                faceRect.left, faceRect.top, faceRect.left, faceRect.bottom,
+                Color.parseColor(faceTop), Color.parseColor(faceBottom),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawRoundRect(faceRect, dp(8f), dp(8f), keyPaint)
+            keyPaint.shader = null
             textPaint.color = when {
                 key.action == KeyAction.SHIFT && shiftOn -> Color.WHITE
                 darkMode -> Color.WHITE
@@ -1495,8 +1630,37 @@ class KeyboardView @JvmOverloads constructor(
                     KeyAction.DELETE, KeyAction.MODE
                 )
             ) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            val y = rect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
-            canvas.drawText(key.label, rect.centerX(), y, textPaint)
+            // Text rides the face, not the slot: a
+            // pressed key's label sinks with it, 2dp.
+            val y = faceRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
+            canvas.drawText(key.label, faceRect.centerX(), y, textPaint)
+            // Flick secondary hint, Nov 2, 2026: the
+            // small symbol in the top-right corner of
+            // each letter key, same 8dp-corner key
+            // shape, grey so it never competes with
+            // the letter. This is what a pull down on
+            // that key types. Letters mode only.
+            if (mode == KeyboardMode.LETTERS &&
+                key.action == KeyAction.CHAR &&
+                key.output.length == 1 && key.output[0].isLetter()
+            ) {
+                val hint = key.output.lowercase().firstOrNull()
+                    ?.let { SECONDARY[it] }
+                if (hint != null) {
+                    textPaint.typeface = Typeface.DEFAULT
+                    textPaint.textSize = dp(11f)
+                    textPaint.color = if (darkMode) {
+                        Color.parseColor("#9CA3AF")
+                    } else {
+                        Color.parseColor("#6B7280")
+                    }
+                    textPaint.textAlign = Paint.Align.RIGHT
+                    canvas.drawText(
+                        hint, faceRect.right - dp(5f), faceRect.top + dp(14f), textPaint
+                    )
+                    textPaint.textAlign = Paint.Align.CENTER
+                }
+            }
         }
 
         // In-keyboard debug banner (see showDebug above).
@@ -1545,10 +1709,28 @@ class KeyboardView @JvmOverloads constructor(
                     startX + i * variantW, top,
                     startX + (i + 1) * variantW - gap, top + rect.height()
                 )
-                keyPaint.color = if (i == variantSelected) {
-                    Color.parseColor("#3B82F6")
-                } else if (darkMode) Color.parseColor("#374151") else Color.WHITE
-                canvas.drawRoundRect(vRect, dp(6f), dp(6f), keyPaint)
+                // Same Manna 3D as the main keys:
+                // dark edge 3dp below, gradient face.
+                val vEdge = RectF(vRect).apply { offset(0f, dp(3f)) }
+                val (vTop, vBottom) = if (i == variantSelected) {
+                    "#60A5FA" to "#3B82F6"
+                } else if (darkMode) {
+                    "#2A3546" to "#1F2937"
+                } else {
+                    "#FFFFFF" to "#E7E9EC"
+                }
+                keyPaint.shader = null
+                keyPaint.color = Color.parseColor(
+                    if (darkMode) "#0C121A" else "#243044"
+                )
+                canvas.drawRoundRect(vEdge, dp(8f), dp(8f), keyPaint)
+                keyPaint.shader = LinearGradient(
+                    vRect.left, vRect.top, vRect.left, vRect.bottom,
+                    Color.parseColor(vTop), Color.parseColor(vBottom),
+                    Shader.TileMode.CLAMP
+                )
+                canvas.drawRoundRect(vRect, dp(8f), dp(8f), keyPaint)
+                keyPaint.shader = null
                 textPaint.color = if (i == variantSelected) Color.WHITE
                     else if (darkMode) Color.WHITE else Color.BLACK
                 textPaint.textSize = dp(22f)

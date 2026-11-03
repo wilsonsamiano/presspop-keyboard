@@ -385,18 +385,6 @@ object Dictionary {
 
     fun isWord(word: String): Boolean = activeWords.contains(word.lowercase())
 
-    /** Letters that can follow [prefix] in some dictionary word. */
-    fun nextLetters(prefix: String, extra: Collection<String> = emptyList()): Set<Char> {
-        if (prefix.isEmpty()) return emptySet()
-        val p = prefix.lowercase()
-        val out = mutableSetOf<Char>()
-        for (w in extra + activeWords) {
-            val wl = w.lowercase()
-            if (wl.length > p.length && wl.startsWith(p)) out.add(wl[p.length])
-        }
-        return out
-    }
-
     /** Words starting with [prefix], personal words first.
      * Apostrophe forms are offered next, code 21 (Wilson:
      * words that should be with an apostrophe, like there's

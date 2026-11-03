@@ -130,8 +130,11 @@ android {
         // capitalization, and swipe apostrophe
         // candidates. Package, class names, and
         // preference keys are unchanged.
-        versionCode = 37
-        versionName = "0.2.3"
+        // Code 38, Oct 30, 2026 (Wilson): tap-typed
+        // personal names get their stored casing on
+        // Space and Enter (see PressPopIME).
+        versionCode = 38
+        versionName = "0.2.4"
     }
 
     signingConfigs {

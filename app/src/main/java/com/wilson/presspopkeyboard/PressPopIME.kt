@@ -697,10 +697,19 @@ class PressPopIME : InputMethodService() {
                                 } else if (true) {
                                 val enterContraction = Dictionary.CONTRACTIONS[enterWord.lowercase()]
                                 val enterRank = Dictionary.RANK_CASING[enterWord.lowercase()]
+                                // Code 38: same personal-casing gap
+                                // as Space — a tap-typed name kept
+                                // its typed lowercase on Enter too.
+                                val enterPersonalCased = personal.allPersonalWords()
+                                    .firstOrNull { it.lowercase() == enterWord.lowercase() && it != enterWord }
                                 if (enterRank != null && enterWord != enterRank) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterRank, 1)
                                     recordCommittedWord(enterRank)
+                                } else if (enterPersonalCased != null) {
+                                    ic.deleteSurroundingText(enterWord.length, 0)
+                                    ic.commitText(enterPersonalCased, 1)
+                                    recordCommittedWord(enterPersonalCased)
                                 } else if (enterContraction != null) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterContraction, 1)
@@ -1332,6 +1341,12 @@ class PressPopIME : InputMethodService() {
             // capitalized, per Wilson's "dont put caps".
             val contraction = Dictionary.CONTRACTIONS[word.lowercase()]
             val rankCased = Dictionary.RANK_CASING[word.lowercase()]
+            // Code 38 (Wilson, Oct 30, 2026): the stored
+            // casing of a personal word, if it differs
+            // from what was typed (e.g. "Angel" vs
+            // typed "angel"). See the branch below.
+            val personalCased = personal.allPersonalWords()
+                .firstOrNull { it.lowercase() == word.lowercase() && it != word }
             if (rankCased != null && word != rankCased) {
                 // Code 25: a typed rank comes out in its
                 // official casing on Space — Army all caps
@@ -1343,6 +1358,23 @@ class PressPopIME : InputMethodService() {
                 ic.deleteSurroundingText(word.length, 0)
                 ic.commitText(rankCased, 1)
                 committedWordThisSpace = rankCased
+            } else if (personalCased != null) {
+                // Code 38: tap-typed personal names did
+                // NOT get their stored casing on Space.
+                // A name is personal, so the autocorrect
+                // branch below skips it ("left alone"),
+                // and nothing ever applied "Angel" over
+                // a typed "angel" mid-sentence — the
+                // suggestion strip offered "Angel" as a
+                // tap choice, but typing the whole word
+                // and pressing Space left it lowercase.
+                // Same pattern as ranks above: apply the
+                // stored casing, and do NOT set
+                // lastCorrected, so backspace deletes
+                // normally instead of "undoing" it.
+                ic.deleteSurroundingText(word.length, 0)
+                ic.commitText(personalCased, 1)
+                committedWordThisSpace = personalCased
             } else if (contraction != null) {
                 ic.deleteSurroundingText(word.length, 0)
                 ic.commitText(contraction, 1)
@@ -1586,7 +1618,8 @@ class PressPopIME : InputMethodService() {
                 )
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10 * density
+                    // Same 8dp corners as the keys, Nov 2, 2026.
+                    cornerRadius = 8 * density
                     setColor(
                         if (darkMode) Color.parseColor("#374151")
                         else Color.WHITE
