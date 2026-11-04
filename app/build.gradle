@@ -197,9 +197,9 @@ dependencies {
     // on the com.k2fsa.sherpa.onnx imports in
     // OfflineVoice.kt — that failure means the AAR
     // was not placed, not that the code is wrong.
-    // Also verify OfflineStream.acceptWaveform's
-    // argument order in OfflineStream.kt inside the
-    // AAR (see the GROK comment in OfflineVoice.kt).
+    // OfflineStream.acceptWaveform is samples-first in
+    // the sherpa-onnx 1.12.23 Kotlin AAR (see the
+    // verified comment in OfflineVoice.kt).
     implementation(files("libs/sherpa-onnx.aar"))
 }
 

@@ -215,18 +215,14 @@ class OfflineVoice(
             val recognizer = OfflineRecognizer(config = config)
             try {
                 val stream = recognizer.createStream()
-                // GROK — VERIFY THIS CALL BEFORE SHIPPING:
-                // The C++ signature is AcceptWaveform(sampling_rate,
-                // waveform, n), and Go/Python are sampleRate-first,
-                // so this call is written sampleRate-first.
-                // The Kotlin wrapper order in OfflineStream.kt
-                // inside the AAR was NOT verified from a Kotlin
-                // source this session. If this line fails to
-                // compile (type mismatch), swap it to
-                // stream.acceptWaveform(samples, SAMPLE_RATE)
-                // and nothing else — do not change the rest
-                // of this file to work around it.
-                stream.acceptWaveform(SAMPLE_RATE, samples)
+                // Verified Nov 3, 2026 against the sherpa-onnx
+                // 1.12.23 Kotlin AAR: OfflineStream.acceptWaveform
+                // is samples-first — (samples: FloatArray,
+                // sampleRate: Int). The C++ core is
+                // sampleRate-first, which is why the original
+                // call was written that way and failed to
+                // compile against this AAR.
+                stream.acceptWaveform(samples, SAMPLE_RATE)
                 recognizer.decode(stream)
                 val text = recognizer.getResult(stream).text.trim()
                 if (text.isNotEmpty()) {
