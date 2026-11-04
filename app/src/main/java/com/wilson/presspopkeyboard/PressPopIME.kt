@@ -53,20 +53,22 @@ import org.json.JSONObject
  * being typed with it. The left slot shows the word as typed, so an
  * autocorrection can be undone with one tap.
  *
- * Autocorrect: when Space is tapped, a word that is not in the
+ * Autocorrect: when Space or Enter is tapped, a word that is not in the
  * dictionary and not a personal word is replaced by its closest
  * dictionary word (edit distance 1 for short words, 2 for longer),
  * if one exists. A personal word is NEVER autocorrected. Autocorrect
- * only fires on Space, never mid-word, and the original word stays
- * in the left suggestion slot so it can be tapped back.
+ * only fires on Space or Enter, never mid-word, and the original word stays
+ * in the left suggestion slot so it can be tapped back (Backspace
+ * right after a correction restores it too).
  *
- * Double-tap Space: the second tap replaces the space just typed
- * with ". " (period + space), iPhone-style.
+ * Double-tap Space: the second tap replaces every trailing space
+ * with ". " (period + space), iPhone-style — after a swipe there
+ * are two trailing spaces, and replacing only one left "word . ".
  *
  * Personal keyboard: PersonalDictionary is loaded here and passed
  * to the view for predictions and swipe matches. Every committed
- * word is offered to it for learning (twice-typed unknowns become
- * personal words).
+ * word is offered to it for learning (an unknown word typed at
+ * least seven times becomes a personal word).
  */
 class PressPopIME : InputMethodService() {
 
@@ -539,8 +541,17 @@ class PressPopIME : InputMethodService() {
                             // before the colon anyway, so
                             // including it breaks nothing.
                             // So if the character before the
-                            // cursor is a single space, delete
-                            // it first, then commit the mark.
+                            // cursor is a space, delete it
+                            // first, then commit the mark.
+                            // Code 39 (Wilson, Nov 3, 2026):
+                            // after a swipe there can be TWO
+                            // trailing spaces (swipe auto-space
+                            // plus a Space tap), and deleting
+                            // only one left "word ," behind.
+                            // Delete every trailing space, the
+                            // same as the double-tap period
+                            // fix — a closing mark never
+                            // keeps a space before it.
                             // Opening marks like "(" / "[" /
                             // "{" are NOT in this set, and
                             // neither are separators like "/"
@@ -551,8 +562,10 @@ class PressPopIME : InputMethodService() {
                             // password, not a separator.
                             if (key.output in setOf(",", ".", ";", ":", "!", "?", ")", "]", "}") && !isPasswordField()) {
                                 try {
-                                    if (ic.getTextBeforeCursor(1, 0)?.toString() == " ") {
-                                        ic.deleteSurroundingText(1, 0)
+                                    val beforeMark = ic.getTextBeforeCursor(32, 0)?.toString() ?: ""
+                                    val trailingSpaces = beforeMark.reversed().takeWhile { it == ' ' }.length
+                                    if (trailingSpaces > 0) {
+                                        ic.deleteSurroundingText(trailingSpaces, 0)
                                     }
                                 } catch (e: Exception) {
                                     // If the field cannot report
@@ -611,14 +624,23 @@ class PressPopIME : InputMethodService() {
                             // as for ".
                             if (key.output == "'" && !isPasswordField()) {
                                 try {
-                                    val before2q = ic.getTextBeforeCursor(2, 0)?.toString() ?: ""
-                                    if (before2q.endsWith(" ")) {
-                                        val beforeSpaceQ = before2q.dropLast(1)
+                                    // Code 39: strip ALL trailing
+                                    // spaces before deciding
+                                    // opening vs closing — with
+                                    // two spaces after a swipe,
+                                    // the old two-character look
+                                    // saw a space before the
+                                    // space and called a closing
+                                    // quote an opening one.
+                                    val beforeQ = ic.getTextBeforeCursor(32, 0)?.toString() ?: ""
+                                    val trailingQ = beforeQ.reversed().takeWhile { it == ' ' }.length
+                                    if (trailingQ > 0) {
+                                        val beforeSpaceQ = beforeQ.dropLast(trailingQ)
                                         val isOpeningQ = beforeSpaceQ.isEmpty() ||
                                             beforeSpaceQ.last().isWhitespace() ||
                                             beforeSpaceQ.last() in "([{"
                                         if (!isOpeningQ) {
-                                            ic.deleteSurroundingText(1, 0)
+                                            ic.deleteSurroundingText(trailingQ, 0)
                                         }
                                     }
                                 } catch (e: Exception) {
@@ -629,13 +651,20 @@ class PressPopIME : InputMethodService() {
                             if (key.output == "\"" && !isPasswordField()) {
                                 try {
                                     val before = ic.getTextBeforeCursor(1000, 0)?.toString() ?: ""
-                                    if (before.endsWith(" ")) {
-                                        val beforeSpace = before.dropLast(1)
+                                    // Code 39: strip ALL trailing
+                                    // spaces before deciding
+                                    // opening vs closing, as
+                                    // for the single quote above
+                                    // — two spaces after a swipe
+                                    // used to read as opening.
+                                    val trailingDQ = before.reversed().takeWhile { it == ' ' }.length
+                                    if (trailingDQ > 0) {
+                                        val beforeSpace = before.dropLast(trailingDQ)
                                         val isOpening = beforeSpace.isEmpty() ||
                                             beforeSpace.last().isWhitespace() ||
                                             beforeSpace.last() in "([{"
                                         if (!isOpening) {
-                                            ic.deleteSurroundingText(1, 0)
+                                            ic.deleteSurroundingText(trailingDQ, 0)
                                         }
                                     } else if (before.isNotEmpty() &&
                                         (before.last().isLetterOrDigit() ||
@@ -658,6 +687,24 @@ class PressPopIME : InputMethodService() {
                                     // As above: never break
                                     // typing for a quote.
                                 }
+                            }
+                            // Code 39 parity (Wilson, Nov 3, 2026):
+                            // a mark should not make the
+                            // next word glue onto it if
+                            // Space is forgotten ("word,
+                            // next" -> "word, next", and
+                            // the same for . ; : ! ?).
+                            // A letter typed right after
+                            // such a mark gets a space
+                            // inserted before it; see
+                            // lazySpaceNeeded() for the
+                            // guards (password, email /
+                            // URI, in-text email, digits).
+                            if (key.output.length == 1 &&
+                                key.output[0].isLetter() &&
+                                lazySpaceNeeded()
+                            ) {
+                                ic.commitText(" ", 1)
                             }
                             ic.commitText(key.output, 1)
                             // One-shot shift: a single (non-locked) shift,
@@ -780,6 +827,18 @@ class PressPopIME : InputMethodService() {
             val committedForm = capitalizeForSentenceStart(swipedWord, 0)
             val text = committedForm +
                 if (isPassword) "" else " "
+            // Code 39 parity (Wilson, Nov 3, 2026): same
+            // forgotten-space rule as a tap-typed
+            // letter after a mark — a swiped word
+            // right after , . ; : ! ? gets a space
+            // before it, so it does not glue onto
+            // the mark. Password fields exempt, as
+            // above (see lazySpaceNeeded()); digits
+            // are not words, so the "1,000" case
+            // cannot arise here.
+            if (!isPassword && lazySpaceNeeded()) {
+                ic?.commitText(" ", 1)
+            }
             ic?.commitText(text, 1)
             // Code 37: if the swiped word has an
             // apostrophe twin ("well" -> "we'll"),
@@ -1210,6 +1269,47 @@ class PressPopIME : InputMethodService() {
     private fun caseRank(word: String): String =
         Dictionary.RANK_CASING[word.lowercase()] ?: word
 
+    // Code 39 parity (Wilson, Nov 3, 2026): lazy auto-space after
+    // punctuation, shared by tap letters, swiped words, and
+    // next-word taps. True when the character right before the
+    // cursor is a clause/sentence mark and a space belongs before
+    // the next word. Lazy, not immediate: nothing is added when
+    // the mark itself is typed, so pressing Space as usual never
+    // double-spaces. Guards, all fail-safe (cannot read text ->
+    // no space, word as-is): password fields, where a space
+    // would corrupt the password; email / URI fields, where an
+    // address or domain must never gain a space; and a period
+    // inside an email typed in a prose field, where the token
+    // before the cursor contains '@', so "test@pm.me" stays
+    // whole. Digits are exempt by the callers (letters / words
+    // only), so "1,000", "3.14", and "5:00" stay whole.
+    // Known trade-off, same as other keyboards' auto-space: a
+    // bare domain typed in a prose field ("example.com") will
+    // gain a space after the dot, because prose and a domain
+    // are indistinguishable at that point.
+    private fun lazySpaceNeeded(): Boolean {
+        if (isPasswordField()) return false
+        val type = currentInputEditorInfo?.inputType ?: InputType.TYPE_CLASS_TEXT
+        val variation = type and InputType.TYPE_MASK_VARIATION
+        if (variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+            variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
+            variation == InputType.TYPE_TEXT_VARIATION_URI) return false
+        val ic = currentInputConnection ?: return false
+        val before = try {
+            ic.getTextBeforeCursor(128, 0)?.toString() ?: ""
+        } catch (e: Exception) {
+            return false
+        }
+        if (before.isEmpty()) return false
+        val mark = before.last()
+        if (mark !in setOf(',', '.', ';', ':', '!', '?')) return false
+        if (mark == '.') {
+            val token = before.split(' ', '\n', '\t').last()
+            if ('@' in token) return false
+        }
+        return true
+    }
+
     // Capitalize [word] when it starts a sentence. [charsBeforeWord]
     // is how many characters of already-committed text belong to the
     // word being replaced (0 for a swipe word, which is not typed yet).
@@ -1304,8 +1404,26 @@ class PressPopIME : InputMethodService() {
 
         // Double-tap Space -> ". " (only if the last thing typed was
         // a word followed by a single space, i.e. a tap just before).
+        // Code 39 (Wilson, Nov 3, 2026): after a swipe, the text
+        // already ends with the swipe's auto-space, so the first
+        // Space tap adds a second space — and deleting only one
+        // space here left "word . " instead of "word. ". Delete
+        // every trailing space before the period, so the period
+        // always lands directly after the word, however many
+        // spaces are trailing. Falls back to deleting one space
+        // if the field cannot report the text before the cursor.
         if (word.isEmpty() && now - lastSpaceTap < 400) {
-            ic.deleteSurroundingText(1, 0)
+            var spacesToDelete = 1
+            try {
+                val before = ic.getTextBeforeCursor(32, 0)?.toString()
+                if (before != null) {
+                    val trailing = before.reversed().takeWhile { it == ' ' }.length
+                    if (trailing > 0) spacesToDelete = trailing
+                }
+            } catch (e: Exception) {
+                // Keep the one-space fallback above.
+            }
+            ic.deleteSurroundingText(spacesToDelete, 0)
             ic.commitText(". ", 1)
             lastSpaceTap = 0L
             updateAutoShift()
@@ -1775,6 +1893,13 @@ class PressPopIME : InputMethodService() {
             val nextWord = capitalizePronounI(suggestion)
                 ?: Dictionary.RANK_CASING[suggestion.lowercase()]
                 ?: capitalizeForSentenceStart(suggestion, 0)
+            // Code 39 parity: a next-word tap right after a
+            // mark gets the same lazy space before it, so
+            // "hello," + tapping "world" is "hello, world",
+            // not "hello,world". See lazySpaceNeeded().
+            if (lazySpaceNeeded()) {
+                ic.commitText(" ", 1)
+            }
             ic.commitText(nextWord + " ", 1)
             recordCommittedWord(suggestion)
             lastCorrected = null

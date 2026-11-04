@@ -99,6 +99,25 @@ class PersonalDictionary(private val context: Context) {
 
     fun allPersonalWords(): Set<String> = manualWords() + learnedWords()
 
+    // Code 39 (Wilson, Nov 3, 2026): bulk delete for My Words.
+    // Removes every manual word AND every learned count, so a
+    // learned word is gone just like a manual one — and so is
+    // progress toward learning (a word typed fewer than seven
+    // times), otherwise a word at six types would quietly
+    // become personal again on its next type after a bulk
+    // delete. The 7-type rule itself is unchanged: after a
+    // bulk delete, a word needs seven fresh types to be
+    // learned again. Wilson then said yes for all sections,
+    // so learned next-word pairs ("bigrams") are cleared
+    // here too — otherwise a deleted word could still
+    // appear as a next-word suggestion. Built-in
+    // dictionary, clipboard, and settings are untouched.
+    // Callers must confirm first: this cannot be undone
+    // except by importing a backup.
+    fun clearAllPersonal() {
+        prefs.edit().remove("manual").remove("counts").remove("bigrams").apply()
+    }
+
     /** Record that [word] was committed. Returns true if it just got learned. */
     fun noteTyped(word: String): Boolean {
         if (isIncognito()) return false

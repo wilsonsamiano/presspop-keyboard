@@ -9,10 +9,13 @@ import android.provider.ContactsContract
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
@@ -468,7 +471,36 @@ class MainActivity : AppCompatActivity() {
                 "Learned words: " + learned.joinToString(", ")
             }
             wordsText.text = manualText + "\n" + learnedText +
-                "\nTo remove a word from either list, type it above and tap Remove."
+                "\nTo remove a word from either list, type it above and tap Remove, " +
+                "or tick words below and tap Remove selected."
+            // Code 39 (Wilson, Nov 3, 2026): selectable
+            // word list, so deleting no longer means
+            // typing each word one at a time. Manual
+            // words first, then learned words (marked
+            // as such); each tick box carries the word
+            // itself as its tag, so Remove selected can
+            // delete it with removeWord(), which works
+            // for manual and learned words alike.
+            // Rebuilt on every refresh, so the list is
+            // always the current one and no stale tick
+            // survives an add, remove, or clear.
+            val container =
+                findViewById<LinearLayout>(R.id.selectWordsContainer)
+            container.removeAllViews()
+            val entries = manual.map { it to false } +
+                learned.map { it to true }
+            if (entries.isEmpty()) {
+                val empty = TextView(this)
+                empty.text = "No personal words to select."
+                container.addView(empty)
+            } else {
+                for ((word, isLearned) in entries) {
+                    val box = CheckBox(this)
+                    box.text = if (isLearned) "$word (learned)" else word
+                    box.tag = word
+                    container.addView(box)
+                }
+            }
         }
         refreshWords()
         findViewById<Button>(R.id.addWordButton).setOnClickListener {
@@ -490,6 +522,85 @@ class MainActivity : AppCompatActivity() {
             wordInput.text.clear()
             refreshWords()
             Toast.makeText(this, "Removed from My Words.", Toast.LENGTH_SHORT).show()
+        }
+        // Code 39 (Wilson, Nov 3, 2026): bulk delete.
+        // One tap, with a confirmation dialog, because
+        // this wipes everything in My Words at once:
+        // manual words, learned words (including
+        // progress toward learning), and learned
+        // next-word pairs — Wilson said yes for all
+        // sections. Built-in dictionary, clipboard,
+        // and settings are untouched.
+        findViewById<Button>(R.id.clearAllWordsButton).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Clear all personal words?")
+                .setMessage(
+                    "This removes every manual word, every " +
+                        "learned word (including progress toward " +
+                        "learning a word), and every learned " +
+                        "next-word pair. It cannot be undone — " +
+                        "export a backup first if you want to keep them."
+                )
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Clear all") { _, _ ->
+                    personal.clearAllPersonal()
+                    refreshWords()
+                    Toast.makeText(
+                        this, "All personal words cleared.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                .show()
+        }
+        // Code 39 (Wilson, Nov 3, 2026): select-and-remove.
+        // Tick words in the list below My Words instead of
+        // typing each one, then remove just those. Select
+        // all ticks every box at once; Remove selected
+        // confirms (it is destructive, though single
+        // words can always be re-added or re-learned)
+        // and deletes each ticked word with removeWord(),
+        // so manual and learned words are both covered.
+        findViewById<Button>(R.id.selectAllWordsButton).setOnClickListener {
+            val container =
+                findViewById<LinearLayout>(R.id.selectWordsContainer)
+            for (i in 0 until container.childCount) {
+                val child = container.getChildAt(i)
+                if (child is CheckBox) child.isChecked = true
+            }
+        }
+        findViewById<Button>(R.id.removeSelectedButton).setOnClickListener {
+            val container =
+                findViewById<LinearLayout>(R.id.selectWordsContainer)
+            val selected = (0 until container.childCount)
+                .mapNotNull { container.getChildAt(it) as? CheckBox }
+                .filter { it.isChecked }
+                .mapNotNull { it.tag as? String }
+            if (selected.isEmpty()) {
+                Toast.makeText(
+                    this, "No words selected.",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+            AlertDialog.Builder(this)
+                .setTitle("Remove selected words?")
+                .setMessage(
+                    "Remove ${selected.size} selected " +
+                        "word${if (selected.size == 1) "" else "s"} " +
+                        "from My Words?"
+                )
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Remove") { _, _ ->
+                    for (word in selected) personal.removeWord(word)
+                    refreshWords()
+                    Toast.makeText(
+                        this,
+                        "Removed ${selected.size} " +
+                            "word${if (selected.size == 1) "" else "s"}.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                .show()
         }
         // Code 36 (Wilson, Oct 30, 2026):
         // "the keyboard should look into your

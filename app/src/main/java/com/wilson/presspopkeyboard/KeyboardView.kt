@@ -80,6 +80,19 @@ class KeyboardView @JvmOverloads constructor(
     var previousWord: String = ""
     private var downAction: KeyAction? = null
     private var downTimeMs: Long = 0L
+    // Code 39 (Wilson, Nov 3, 2026): two-thumb ghost swipe.
+    // The view never tracked fingers separately, so when a
+    // second thumb landed while the first was still down,
+    // the second thumb's movement was appended to the
+    // first thumb's trace — the keyboard read the jump
+    // from one thumb to the other as one long swipe and
+    // committed a ghost word. activePointerId is the one
+    // finger a gesture belongs to; multiTouchBlocked is
+    // set the moment a second finger lands and stays set
+    // until that gesture ends, so an overlapped gesture
+    // can never become a swipe, whatever its path is.
+    private var activePointerId: Int = -1
+    private var multiTouchBlocked: Boolean = false
     var onCursorMove: ((Int) -> Unit)? = null
     var onCursorLineMove: ((Int) -> Unit)? = null
     var onWordChanged: ((String) -> Unit)? = null
@@ -500,7 +513,16 @@ class KeyboardView @JvmOverloads constructor(
         return Key(shown, shown, KeyAction.CHAR, shown)
     }
 
-    private fun emojiKey(): Key = Key("😀", "😀", KeyAction.MODE, mode = KeyboardMode.EMOJI, weight = 0.9f)
+    // Code 39 (Wilson, Nov 3, 2026): the emoji key was too
+    // "out there" on the bottom row — first the grinning face
+    // was swapped for a calmer smile, then Wilson asked for
+    // smaller and monochrome. So the key now shows U+263A
+    // WHITE SMILING FACE with U+FE0E (text presentation,
+    // forcing a monochrome outline instead of a colour
+    // emoji), drawn smaller than the letter keys (see
+    // onDraw). The emoji page itself is unchanged — the
+    // colour emoji are still all there once the page opens.
+    private fun emojiKey(): Key = Key("☺︎", "☺︎", KeyAction.MODE, mode = KeyboardMode.EMOJI, weight = 0.9f)
 
     private val EMOJIS = listOf(
         "😀", "😂", "😍", "🥰", "😎", "🤔", "😢", "😡", "👍", "👏",
@@ -1114,8 +1136,10 @@ class KeyboardView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                activePointerId = event.getPointerId(0)
+                multiTouchBlocked = false
                 downPoint.set(event.x, event.y)
                 swipePoints.clear()
                 swipeTimes.clear()
@@ -1157,7 +1181,61 @@ class KeyboardView @JvmOverloads constructor(
                 invalidate()
                 return true
             }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // Second thumb lands while the first is still
+                // down: this gesture is now two thumbs, not a
+                // swipe. Freeze it — later moves are ignored
+                // (see ACTION_MOVE), and the wasSwipe check
+                // in ACTION_UP is forced false while this
+                // flag is set. The second thumb's own tap
+                // is not started here; see ACTION_POINTER_UP
+                // for the trade-off that follows from that.
+                multiTouchBlocked = true
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                val liftedId = event.getPointerId(event.actionIndex)
+                if (liftedId != activePointerId) {
+                    // The other thumb lifted; the first
+                    // gesture stays blocked until it ends.
+                    return true
+                }
+                // The tracked thumb lifted while another
+                // thumb is still down. Its tap cannot be
+                // committed through the normal ACTION_UP
+                // path (that event only fires when the
+                // last finger lifts), so this gesture ends
+                // with nothing committed rather than a
+                // ghost word — one lost tap in an overlap
+                // is far less damage than a wrong word
+                // plus a trailing space. The remaining
+                // thumb's lift will also commit nothing,
+                // because its DOWN was never recorded;
+                // it starts clean on its next DOWN.
+                activePointerId = -1
+                multiTouchBlocked = false
+                dismissKeyPopup()
+                pressedKey = null
+                pressedRect = null
+                flickSecondary = null
+                downKey = null
+                swipePoints.clear()
+                swipeTimes.clear()
+                visitedLetters.clear()
+                handler.removeCallbacks(longPressRunnable)
+                handler.removeCallbacks(spaceCursorStart)
+                deleteRepeating = false
+                handler.removeCallbacks(deleteRepeat)
+                invalidate()
+                return true
+            }
             MotionEvent.ACTION_MOVE -> {
+                // Frozen while a second thumb is down:
+                // no tracing, no flick, no cursor move.
+                // Without this, the second thumb's
+                // position would extend the first
+                // thumb's trace into a ghost swipe.
+                if (multiTouchBlocked) return true
                 // Flick to a secondary symbol, Nov 2, 2026:
                 // pull DOWN on a letter key to type the
                 // small symbol in its corner. Gated hard
@@ -1165,12 +1243,19 @@ class KeyboardView @JvmOverloads constructor(
                 // by accident: the pull must be short
                 // (under 350 ms), mostly vertical (down
                 // more than 2.5x the sideways drift, and
-                // at least 18dp down), and it must start
+                // at least 30dp down), and it must start
                 // on a letter key with no second letter
                 // traced yet. A glide to the letter in
                 // the row below is diagonal (its row is
                 // inset by about half a key), so it fails
                 // the vertical test and traces normally.
+                // Code 39 (Wilson, Nov 3, 2026): the
+                // pull was 18dp, and a two-thumb tap
+                // roll on a phone reached it by
+                // accident, turning plain taps into
+                // symbols. 30dp is a deliberate pull,
+                // past a tap roll, but still well
+                // inside one key's height.
                 // Once a flick is set, later moves are
                 // ignored: the finger stays on this
                 // gesture until it lifts, it does not
@@ -1184,7 +1269,7 @@ class KeyboardView @JvmOverloads constructor(
                     val secondary = downKey!!.output.lowercase()
                         .firstOrNull()?.let { SECONDARY[it] }
                     if (secondary != null &&
-                        dy > dp(18f) && dy > kotlin.math.abs(dx) * 2.5f &&
+                        dy > dp(30f) && dy > kotlin.math.abs(dx) * 2.5f &&
                         event.eventTime - downTimeMs < 350L
                     ) {
                         flickSecondary = secondary
@@ -1347,9 +1432,35 @@ class KeyboardView @JvmOverloads constructor(
                 dismissKeyPopup()
                 pressedKey = null
                 pressedRect = null
+                // Code 39 (Wilson, Nov 3, 2026): two-thumb tap
+                // typing kept turning into ghost words — a tap
+                // that rolls a little into the next key cleared
+                // the old bar (2 distinct letters, >50dp) and
+                // shapeMatch then committed a whole word,
+                // usually several in a row while typing fast.
+                // A short, fast, 2-letter trace is now a tap,
+                // not a swipe: it only counts as a swipe if
+                // it is long (>90dp, about two and a half
+                // phone keys) or slow (>=300ms, a deliberate
+                // drag rather than a tap roll). That keeps
+                // every 3+ letter swipe and every long
+                // 2-letter swipe (to, in, me, go, and the
+                // rest) unchanged; only adjacent-key pairs
+                // like "we" / "as" lose fast-swipe, and
+                // those are two taps for a two-thumb
+                // typist anyway. A suppressed roll falls
+                // through to the normal tap commit below,
+                // so at worst one letter is wrong, never
+                // a whole ghost word.
+                val gestureDurationMs = event.eventTime - downTimeMs
+                val distinctLetters = visitedLetters.distinct().size
+                val tracePath = pathLength()
+                val shortFastTwoLetter = distinctLetters == 2 &&
+                    tracePath <= dp(90f) && gestureDurationMs < 300L
                 val wasSwipe = mode == KeyboardMode.LETTERS &&
-                    visitedLetters.distinct().size >= 2 &&
-                    pathLength() > dp(50f)
+                    distinctLetters >= 2 &&
+                    tracePath > dp(50f) && !shortFastTwoLetter &&
+                    !multiTouchBlocked
                 // Capture the traced letters BEFORE clearing: visitedLetters
                 // already dedupes consecutive repeats (h-e-l-o for hello),
                 // and bestSwipeMatch tolerates that one missing letter.
@@ -1386,6 +1497,8 @@ class KeyboardView @JvmOverloads constructor(
                 swipePoints.clear()
                 swipeTimes.clear()
                 visitedLetters.clear()
+                activePointerId = -1
+                multiTouchBlocked = false
                 invalidate()
                 // Flick commit: the secondary symbol, not
                 // the letter. It is punctuation or a
@@ -1397,7 +1510,7 @@ class KeyboardView @JvmOverloads constructor(
                 val flick = flickSecondary
                 flickSecondary = null
                 downKey = null
-                if (event.action == MotionEvent.ACTION_CANCEL || wasCursor) return true
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL || wasCursor) return true
                 if (flick != null) {
                     typedWord = ""
                     typedWordHadUpper = false
@@ -1617,6 +1730,11 @@ class KeyboardView @JvmOverloads constructor(
                 else -> Color.BLACK
             }
             textPaint.textSize = when {
+                // Code 39: the emoji mode key is smaller than
+                // the letter keys (16dp vs 22dp), per Wilson's
+                // "smaller monochrome" ask — it should sit
+                // quietly on the bottom row, not shout.
+                key.action == KeyAction.MODE && key.mode == KeyboardMode.EMOJI -> dp(16f)
                 mode == KeyboardMode.EMOJI && key.action == KeyAction.CHAR -> dp(24f)
                 key.label.length > 2 -> dp(15f)
                 else -> dp(22f)

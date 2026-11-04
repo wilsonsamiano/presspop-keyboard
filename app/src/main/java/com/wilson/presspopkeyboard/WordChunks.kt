@@ -1826,7 +1826,7 @@ object WordChunk10 {
         "offend", "ostrich", "pave", "peasant", "prayed", "prays", "pronounce", "quarrel", "quieter", "ramble",
         "rehearse", "ridden", "roar", "rung", "sadder", "salty", "scorn", "shaken", "she'd", "she'll",
         "shouldn't", "sneeze", "sniff", "snore", "softer", "spacebar", "spoil", "stale", "swam", "swims",
-        "swipe", "swum", "tagalog", "tempt", "that's", "there's", "they'd", "they'll", "they're", "they've",
+        "swipe", "swipes", "swiped", "swiping", "swum", "tagalog", "tempt", "that's", "there's", "they'd", "they'll", "they're", "they've",
         "thirst", "thirsty", "tore", "tremble", "unfold", "wakes", "wasn't", "we'd", "we'll", "we're",
         "we've", "weep", "weren't", "what's", "woken", "won't", "wouldn't", "you'd", "you'll", "you're",
         "you've", "defeats", "he's", "she's", "corporal", "ssg", "sfc", "pv2", "1sg", "sgm",
