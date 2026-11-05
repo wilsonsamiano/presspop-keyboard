@@ -275,6 +275,11 @@ class KeyboardView @JvmOverloads constructor(
     // NOT trigger the long-press accent picker.
     private var downKey: Key? = null
     private var flickSecondary: String? = null
+    // How far a downward pull has revealed the secondary
+    // symbol, 0..1. iPhone's keyboard (the iPad QuickType
+    // pull) slides the keycap down: the letter leaves and
+    // the small grey symbol grows into the primary glyph.
+    private var flickPull = 0f
 
     // Code 31 (Wilson, Oct 29, 2026): key popups are
     // now their own PopupWindow, not canvas drawing.
@@ -367,6 +372,26 @@ class KeyboardView @JvmOverloads constructor(
             popup.inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
             keyPopup = popup
             popup.showAsDropDown(this, left.toInt(), yOff)
+            // Secondary reveal: the symbol slides up into
+            // the bubble and settles with a small overshoot,
+            // the same pop iOS uses when the alternate
+            // character takes over the preview.
+            if (flickSecondary != null) {
+                bubble.pivotX = popupW / 2f
+                bubble.pivotY = popupH / 2f
+                bubble.translationY = dp(14f)
+                bubble.scaleX = 0.82f
+                bubble.scaleY = 0.82f
+                bubble.alpha = 0.55f
+                bubble.animate()
+                    .translationY(0f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .alpha(1f)
+                    .setDuration(170)
+                    .setInterpolator(android.view.animation.OvershootInterpolator(1.5f))
+                    .start()
+            }
         } catch (e: Exception) {
             keyPopup = null
         }
@@ -509,6 +534,16 @@ class KeyboardView @JvmOverloads constructor(
 
     private fun dp(v: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics)
+
+    private fun mixColor(from: Int, to: Int, t: Float): Int {
+        val u = t.coerceIn(0f, 1f)
+        return Color.argb(
+            255,
+            (Color.red(from) + (Color.red(to) - Color.red(from)) * u).toInt(),
+            (Color.green(from) + (Color.green(to) - Color.green(from)) * u).toInt(),
+            (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * u).toInt()
+        )
+    }
 
     private fun charKey(c: Char): Key {
         val shown = if (shiftOn) c.uppercaseChar().toString() else c.toString()
@@ -1163,6 +1198,7 @@ class KeyboardView @JvmOverloads constructor(
                     hit?.key?.action == KeyAction.CHAR
                 ) hit.key else null
                 flickSecondary = null
+                flickPull = 0f
                 showKeyPopup()
                 if (hit?.key?.action == KeyAction.SPACE) {
                     spaceHeld = true
@@ -1220,6 +1256,7 @@ class KeyboardView @JvmOverloads constructor(
                 pressedKey = null
                 pressedRect = null
                 flickSecondary = null
+                flickPull = 0f
                 downKey = null
                 swipePoints.clear()
                 swipeTimes.clear()
@@ -1270,11 +1307,24 @@ class KeyboardView @JvmOverloads constructor(
                     val dy = event.y - downPoint.y
                     val secondary = downKey!!.output.lowercase()
                         .firstOrNull()?.let { SECONDARY[it] }
+                    // Follow the finger while it is still a
+                    // downward pull, so the keycap animation
+                    // plays before the flick actually commits.
+                    // A sideways move is a swipe, not a pull,
+                    // and the key snaps back.
+                    val pulling = secondary != null &&
+                        dy > 0f && dy > kotlin.math.abs(dx) * 1.5f
+                    val nextPull = if (pulling) (dy / dp(30f)).coerceIn(0f, 1f) else 0f
+                    if (nextPull != flickPull) {
+                        flickPull = nextPull
+                        invalidate()
+                    }
                     if (secondary != null &&
                         dy > dp(30f) && dy > kotlin.math.abs(dx) * 2.5f &&
                         event.eventTime - downTimeMs < 350L
                     ) {
                         flickSecondary = secondary
+                        flickPull = 1f
                         handler.removeCallbacks(longPressRunnable)
                         showKeyPopup()
                         invalidate()
@@ -1511,6 +1561,7 @@ class KeyboardView @JvmOverloads constructor(
                 // gesture types nothing.
                 val flick = flickSecondary
                 flickSecondary = null
+                flickPull = 0f
                 downKey = null
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL || wasCursor) return true
                 if (flick != null) {
@@ -1714,7 +1765,13 @@ class KeyboardView @JvmOverloads constructor(
             }
             val edgeRect = RectF(rect).apply { offset(0f, dp(3f)) }
             val faceRect = RectF(rect).apply {
-                if (isPressed) offset(0f, dp(2f))
+                var drop = if (isPressed) dp(2f) else 0f
+                // iPhone pull: the keycap itself travels
+                // down a few dp with the finger. The dark
+                // edge stays put, so the cap looks lifted
+                // off its base.
+                if (isPressed && flickPull > 0f) drop += dp(5f) * flickPull
+                if (drop != 0f) offset(0f, drop)
             }
             keyPaint.shader = null
             keyPaint.color = Color.parseColor(edgeColor)
@@ -1753,14 +1810,61 @@ class KeyboardView @JvmOverloads constructor(
             // Text rides the face, not the slot: a
             // pressed key's label sinks with it, 2dp.
             val y = faceRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
-            canvas.drawText(key.label, faceRect.centerX(), y, textPaint)
+            val pullHint = if (isPressed && flickPull > 0f &&
+                mode == KeyboardMode.LETTERS &&
+                key.action == KeyAction.CHAR &&
+                key.output.length == 1 && key.output[0].isLetter()
+            ) {
+                SECONDARY[key.output.lowercase().first()]
+            } else null
+            if (pullHint != null) {
+                // Pull the letter down and out, and bring
+                // the corner symbol into the center at
+                // full size and the primary color. Clipped
+                // to the key so it does not spill onto the
+                // row below.
+                val p = flickPull
+                val primary = textPaint.color
+                val grey = if (darkMode) Color.parseColor("#9CA3AF") else Color.parseColor("#6B7280")
+                canvas.save()
+                canvas.clipRect(rect)
+                textPaint.alpha = ((1f - p) * 255f).toInt().coerceIn(0, 255)
+                canvas.drawText(
+                    key.label,
+                    faceRect.centerX(),
+                    y + rect.height() * 0.65f * p,
+                    textPaint
+                )
+                textPaint.textSize = dp(11f)
+                textPaint.textAlign = Paint.Align.CENTER
+                val hintW = textPaint.measureText(pullHint)
+                val startX = faceRect.right - dp(5f) - hintW / 2f
+                val startY = faceRect.top + dp(13f)
+                textPaint.textSize = dp(11f) + (dp(22f) - dp(11f)) * p
+                textPaint.color = mixColor(grey, primary, p)
+                textPaint.alpha = (180 + 75f * p).toInt().coerceIn(0, 255)
+                canvas.drawText(
+                    pullHint,
+                    startX + (faceRect.centerX() - startX) * p,
+                    startY + (y - startY) * p,
+                    textPaint
+                )
+                canvas.restore()
+                textPaint.alpha = 255
+                textPaint.color = primary
+                textPaint.textSize = dp(22f)
+            } else {
+                canvas.drawText(key.label, faceRect.centerX(), y, textPaint)
+            }
             // Flick secondary hint, Nov 2, 2026: the
             // small symbol in the top-right corner of
             // each letter key, same 8dp-corner key
             // shape, grey so it never competes with
             // the letter. This is what a pull down on
             // that key types. Letters mode only.
-            if (mode == KeyboardMode.LETTERS &&
+            // Hidden while the pull animation is
+            // already moving that same symbol.
+            if (pullHint == null && mode == KeyboardMode.LETTERS &&
                 key.action == KeyAction.CHAR &&
                 key.output.length == 1 && key.output[0].isLetter()
             ) {
