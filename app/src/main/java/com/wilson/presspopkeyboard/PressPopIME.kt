@@ -83,6 +83,14 @@ class PressPopIME : InputMethodService() {
     // PopupWindow for the tapped-word bubble, so rapid
     // taps replace it instead of stacking bubbles.
     private var suggestionPopup: PopupWindow? = null
+    // Inline autofill, code 27, shown as a compact popup
+    // ABOVE the keyboard (code 41). A full-width row inside
+    // the keyboard turned two login chips into giant white
+    // bars that sat on the keys and crowded dialogs (the
+    // Microsoft sign-in card). The chips now float just
+    // above the keyboard instead.
+    private var autofillPopup: PopupWindow? = null
+    private var autofillPopupRow: LinearLayout? = null
     // Inline autofill row, code 27: a separate row ABOVE the
     // suggestion strip, holding views inflated by the
     // user's autofill service (Google Password Manager,
@@ -366,12 +374,11 @@ class PressPopIME : InputMethodService() {
 
         autofillRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(if (darkMode) Color.parseColor("#111827") else Color.WHITE)
+            visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (56 * resources.displayMetrics.density).toInt()
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            visibility = View.GONE
         }
         strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1814,6 +1821,11 @@ class PressPopIME : InputMethodService() {
             val popup = PopupWindow(
                 bubble, popupW, popupH, false
             )
+            // Let the bubble draw above the keyboard window.
+            // Clipping keeps it inside the IME and drops it
+            // onto the keys.
+            popup.isClippingEnabled = false
+            popup.inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
             suggestionPopup = popup
             popup.showAsDropDown(anchor, xOff, yOff)
             Handler(Looper.getMainLooper()).postDelayed(
@@ -2002,39 +2014,66 @@ class PressPopIME : InputMethodService() {
     //   service has no login for this app/site, Android
     //   sends nothing and the row stays hidden.
     private fun clearAutofillRow() {
+        autofillPopup?.dismiss()
+        autofillPopup = null
+        autofillPopupRow = null
         if (::autofillRow.isInitialized) {
             autofillRow.removeAllViews()
             autofillRow.visibility = View.GONE
         }
     }
 
+    // Never take the extract-text fullscreen. In that mode
+    // Android does not resize the app, so dialogs (sign-in
+    // prompts, permission cards) stay centered on the full
+    // screen and the keyboard covers them.
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
+    override fun onComputeInsets(outInsets: Insets) {
+        super.onComputeInsets(outInsets)
+        if (isFullscreenMode) return
+        val input = if (::keyboardView.isInitialized) {
+            keyboardView.parent as? View
+        } else null
+        if (input == null || input.height <= 0) return
+        val loc = IntArray(2)
+        input.getLocationInWindow(loc)
+        val top = loc[1].coerceAtLeast(0)
+        outInsets.contentTopInsets = top
+        outInsets.visibleTopInsets = top
+        outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_VISIBLE
+    }
+
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
+        refreshDarkMode()
         val density = resources.displayMetrics.density
-        val rowHeightPx = (56 * density).toInt()
-        val screenWidthPx = resources.displayMetrics.widthPixels
-        // Code 29: style bundle, REQUIRED. Grok's v27
-        // smoke test (code 27, commit a9024d29) proved
-        // the request itself was valid (max 3, 56dp row),
-        // but the system renderer refused to draw the
-        // chip because this spec's style bundle was
-        // empty — Android's docs say "The style must be
-        // set for the suggestion to render properly."
-        // The documented default-style route is used
-        // here: UiVersions.newStylesBuilder() plus one
-        // default InlineSuggestionUi style, no custom
-        // colours or icons, so the autofill service's
-        // chip renders with its default theme. This is
-        // the only change needed for a saved login to
-        // actually show in the row and fill on tap;
-        // without it, a real Google chip would hit the
-        // same empty-style refusal as the local test
-        // service did.
+        val chipH = (44 * density).toInt()
+        val chipW = (240 * density).toInt()
         val stylesBuilder = UiVersions.newStylesBuilder()
-        stylesBuilder.addStyle(InlineSuggestionUi.newStyleBuilder().build())
+        val title = androidx.autofill.inline.common.TextViewStyle.Builder()
+            .setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            .setTextSize(14f)
+            .build()
+        val chip = androidx.autofill.inline.common.ViewStyle.Builder()
+            .setBackgroundColor(if (darkMode) Color.parseColor("#374151") else Color.WHITE)
+            .setPadding(
+                (12 * density).toInt(),
+                (6 * density).toInt(),
+                (12 * density).toInt(),
+                (6 * density).toInt()
+            )
+            .build()
+        stylesBuilder.addStyle(
+            InlineSuggestionUi.newStyleBuilder()
+                .setChipStyle(chip)
+                .setTitleStyle(title)
+                .setSubtitleStyle(title)
+                .build()
+        )
         val spec = InlinePresentationSpec.Builder(
-            Size(100, rowHeightPx),
-            Size(screenWidthPx, rowHeightPx)
+            Size((48 * density).toInt(), chipH),
+            Size(chipW, chipH)
         ).setStyle(stylesBuilder.build())
             .build()
         return InlineSuggestionsRequest.Builder(listOf(spec))
@@ -2044,45 +2083,75 @@ class PressPopIME : InputMethodService() {
 
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
-        if (!::autofillRow.isInitialized) return false
+        if (!::keyboardView.isInitialized) return false
         val suggestions = response.inlineSuggestions
-        if (suggestions.isEmpty()) {
-            clearAutofillRow()
-            return true
-        }
-        autofillRow.removeAllViews()
-        autofillRow.visibility = View.VISIBLE
+        clearAutofillRow()
+        if (suggestions.isEmpty()) return true
         val density = resources.displayMetrics.density
-        val rowHeightPx = (56 * density).toInt()
-        val screenWidthPx = resources.displayMetrics.widthPixels
+        val chipH = (44 * density).toInt()
+        val chipW = (240 * density).toInt()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        autofillPopupRow = row
+        val expected = suggestions.size
+        var arrived = 0
+        fun showWhenReady() {
+            if (arrived < expected || autofillPopupRow !== row) return
+            if (row.childCount == 0) return
+            showAutofillPopup(row)
+        }
         for (suggestion in suggestions) {
             try {
                 suggestion.inflate(
                     this,
-                    Size(screenWidthPx, rowHeightPx),
+                    Size(chipW, chipH),
                     mainExecutor
                 ) { inlineContentView ->
-                    // The inflated InlineContentView IS
-                    // the view — it is a ViewGroup the
-                    // autofill service hands to PressPop.
-                    // There is no .view property on it;
-                    // that was the code 27 build error.
-                    // PressPop only hosts it — it does
-                    // not read, log, or modify its
-                    // content, and tapping it is handled
-                    // by Android/autofill.
+                    if (autofillPopupRow !== row) return@inflate
                     inlineContentView.layoutParams = LinearLayout.LayoutParams(
-                        0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
-                    )
-                    autofillRow.addView(inlineContentView)
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        chipH
+                    ).apply {
+                        marginEnd = (8 * density).toInt()
+                    }
+                    row.addView(inlineContentView)
+                    arrived++
+                    showWhenReady()
                 }
             } catch (e: Exception) {
-                // One bad suggestion must not kill the
-                // row for the others, and must never
-                // crash the keyboard.
+                arrived++
+                showWhenReady()
             }
         }
         return true
+    }
+
+    // Compact login chips, just above the keyboard, not a
+    // full-width bar inside it. Clipping is off so the
+    // popup can leave the IME window; it does not take
+    // focus, so the keyboard stays up and a tap still fills.
+    private fun showAutofillPopup(row: LinearLayout) {
+        try {
+            autofillPopup?.dismiss()
+            val widthSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            row.measure(widthSpec, heightSpec)
+            val popupW = row.measuredWidth.coerceAtLeast(1)
+            val popupH = row.measuredHeight.coerceAtLeast(1)
+            val popup = PopupWindow(row, popupW, popupH, false)
+            popup.isClippingEnabled = false
+            popup.isTouchable = true
+            popup.isFocusable = false
+            popup.inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
+            val anchor = keyboardView.parent as? View ?: keyboardView
+            val gap = (6 * resources.displayMetrics.density).toInt()
+            popup.showAsDropDown(anchor, gap, -(anchor.height + popupH + gap))
+            autofillPopup = popup
+        } catch (e: Exception) {
+            autofillPopup = null
+        }
     }
 
     override fun onFinishInput() {

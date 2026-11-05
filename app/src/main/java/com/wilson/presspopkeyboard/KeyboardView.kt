@@ -363,6 +363,8 @@ class KeyboardView @JvmOverloads constructor(
             val popup = PopupWindow(
                 bubble, popupW.toInt(), popupH.toInt(), false
             )
+            popup.isClippingEnabled = false
+            popup.inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
             keyPopup = popup
             popup.showAsDropDown(this, left.toInt(), yOff)
         } catch (e: Exception) {
