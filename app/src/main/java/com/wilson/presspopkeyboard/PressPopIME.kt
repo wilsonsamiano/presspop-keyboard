@@ -697,16 +697,44 @@ class PressPopIME : InputMethodService() {
                             // A letter typed right after
                             // such a mark gets a space
                             // inserted before it; see
-                            // lazySpaceNeeded() for the
+                            // lazySpaceMark() for the
                             // guards (password, email /
                             // URI, in-text email, digits).
-                            if (key.output.length == 1 &&
-                                key.output[0].isLetter() &&
-                                lazySpaceNeeded()
-                            ) {
+                            // Code 40 (Wilson, Nov 4, 2026):
+                            // that lazy space must behave
+                            // exactly like tapping Space:
+                            // after a sentence-ending
+                            // mark (. ! ?) the letter
+                            // itself is capitalized, the
+                            // way the normal Space path's
+                            // auto-shift capitalizes it.
+                            // Without this, "hello. n"
+                            // stayed lowercase — the
+                            // auto-capitalization simply
+                            // never fired on the lazy
+                            // path, because no Space tap
+                            // ran updateAutoShift().
+                            // Clause marks (, ; :) do not
+                            // capitalize, as before.
+                            // Swiped words and next-word
+                            // taps already capitalize
+                            // via capitalizeForSentenceStart,
+                            // so only this tap-letter
+                            // path needed the fix.
+                            val lazyMark = if (key.output.length == 1 &&
+                                key.output[0].isLetter()
+                            ) lazySpaceMark() else null
+                            if (lazyMark != null) {
                                 ic.commitText(" ", 1)
                             }
-                            ic.commitText(key.output, 1)
+                            val letterOut = if (autoCapitalize &&
+                                lazyMark in setOf('.', '!', '?')
+                            ) {
+                                key.output.uppercase()
+                            } else {
+                                key.output
+                            }
+                            ic.commitText(letterOut, 1)
                             // One-shot shift: a single (non-locked) shift,
                             // manual or automatic, applies to one letter only.
                             if (keyboardView.shiftOn && !keyboardView.shiftLock &&
@@ -833,10 +861,10 @@ class PressPopIME : InputMethodService() {
             // right after , . ; : ! ? gets a space
             // before it, so it does not glue onto
             // the mark. Password fields exempt, as
-            // above (see lazySpaceNeeded()); digits
+            // above (see lazySpaceMark()); digits
             // are not words, so the "1,000" case
             // cannot arise here.
-            if (!isPassword && lazySpaceNeeded()) {
+            if (!isPassword && lazySpaceMark() != null) {
                 ic?.commitText(" ", 1)
             }
             ic?.commitText(text, 1)
@@ -1287,27 +1315,33 @@ class PressPopIME : InputMethodService() {
     // bare domain typed in a prose field ("example.com") will
     // gain a space after the dot, because prose and a domain
     // are indistinguishable at that point.
-    private fun lazySpaceNeeded(): Boolean {
-        if (isPasswordField()) return false
+    // Code 40: returns the mark itself, not just true/false,
+    // because the tap-letter path needs to know WHICH mark
+    // it was — a sentence-ending mark (. ! ?) capitalizes
+    // the letter that follows, a clause mark (, ; :) does
+    // not. Callers that only need the yes/no answer test
+    // the result against null.
+    private fun lazySpaceMark(): Char? {
+        if (isPasswordField()) return null
         val type = currentInputEditorInfo?.inputType ?: InputType.TYPE_CLASS_TEXT
         val variation = type and InputType.TYPE_MASK_VARIATION
         if (variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
             variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
-            variation == InputType.TYPE_TEXT_VARIATION_URI) return false
-        val ic = currentInputConnection ?: return false
+            variation == InputType.TYPE_TEXT_VARIATION_URI) return null
+        val ic = currentInputConnection ?: return null
         val before = try {
             ic.getTextBeforeCursor(128, 0)?.toString() ?: ""
         } catch (e: Exception) {
-            return false
+            return null
         }
-        if (before.isEmpty()) return false
+        if (before.isEmpty()) return null
         val mark = before.last()
-        if (mark !in setOf(',', '.', ';', ':', '!', '?')) return false
+        if (mark !in setOf(',', '.', ';', ':', '!', '?')) return null
         if (mark == '.') {
             val token = before.split(' ', '\n', '\t').last()
-            if ('@' in token) return false
+            if ('@' in token) return null
         }
-        return true
+        return mark
     }
 
     // Capitalize [word] when it starts a sentence. [charsBeforeWord]
@@ -1896,8 +1930,8 @@ class PressPopIME : InputMethodService() {
             // Code 39 parity: a next-word tap right after a
             // mark gets the same lazy space before it, so
             // "hello," + tapping "world" is "hello, world",
-            // not "hello,world". See lazySpaceNeeded().
-            if (lazySpaceNeeded()) {
+            // not "hello,world". See lazySpaceMark().
+            if (lazySpaceMark() != null) {
                 ic.commitText(" ", 1)
             }
             ic.commitText(nextWord + " ", 1)
