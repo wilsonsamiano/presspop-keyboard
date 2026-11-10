@@ -125,6 +125,16 @@ class PersonalDictionary(private val context: Context) {
         if (isIncognito()) return false
         val w = word.lowercase()
         if (w.length < 3 || manualWords().any { it.lowercase() == w } || !w.all { it.isLetter() }) return false
+        // Code 45 (Wilson, Nov 9, 2026): only learn words
+        // the keyboard does NOT already know. The old code
+        // counted every word typed, including ordinary
+        // dictionary words, so "the", "and", "you" all
+        // became "learned" words after 7 types and filled
+        // the My Words screen with words that were never
+        // unknown. A dictionary word needs no learning —
+        // it is already suggested, swiped, and never
+        // autocorrected — so it is never counted here.
+        if (Dictionary.isWord(w)) return false
         val counts = (prefs.getStringSet("counts", emptySet()) ?: emptySet()).toMutableSet()
         val old = counts.firstOrNull { it.startsWith("$w:") }
         val oldCount = old?.substringAfter(":")?.toIntOrNull() ?: 0
@@ -136,6 +146,29 @@ class PersonalDictionary(private val context: Context) {
 
     fun isPersonal(word: String): Boolean =
         allPersonalWords().any { it.lowercase() == word.lowercase() }
+
+    // Code 45 (Wilson, Nov 9, 2026): one-time cleanup
+    // for the words noteTyped wrongly learned before
+    // the dictionary check above — "the", "and", "you",
+    // "that", and the rest of the common words that
+    // filled the My Words screen. Removes the stored
+    // counts for words already in the built-in
+    // dictionary, once (guarded by a flag, so it never
+    // re-runs). Manual words are untouched, and real
+    // learned words the keyboard does not know ("thr",
+    // names) stay learned. Returns how many entries
+    // were removed.
+    fun purgeDictionaryWordsOnce(): Int {
+        if (prefs.getBoolean("dict_purge_done", false)) return 0
+        val counts = (prefs.getStringSet("counts", emptySet()) ?: emptySet()).toMutableSet()
+        val before = counts.size
+        counts.removeAll { entry ->
+            Dictionary.isWord(entry.substringBefore(":"))
+        }
+        prefs.edit().putStringSet("counts", counts)
+            .putBoolean("dict_purge_done", true).apply()
+        return before - counts.size
+    }
 
     // Next-word pairs the user actually types, code 20,
     // uncapped in code 22.

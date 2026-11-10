@@ -133,8 +133,8 @@ android {
         // Code 38, Oct 30, 2026 (Wilson): tap-typed
         // personal names get their stored casing on
         // Space and Enter (see PressPopIME).
-        versionCode = 44
-        versionName = "0.2.10"
+        versionCode = 45
+        versionName = "0.2.11"
     }
 
     signingConfigs {

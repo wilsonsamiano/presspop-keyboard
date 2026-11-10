@@ -311,6 +311,10 @@ class PressPopIME : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
         personal = PersonalDictionary(this)
+        // Code 45: one-time purge of dictionary words
+        // that noteTyped wrongly learned ("the", "and",
+        // "you" ...). Runs once; real learned words stay.
+        personal.purgeDictionaryWordsOnce()
         clipboard = ClipboardHistory(this)
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         darkMode = ThemeMode.isDark(this, settings)
