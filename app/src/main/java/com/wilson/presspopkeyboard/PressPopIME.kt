@@ -806,12 +806,20 @@ class PressPopIME : InputMethodService() {
                                         enterWord, personal.allPersonalWords()
                                     )
                                     if (enterCorrection != null) {
+                                        // Code 43 (Wilson, Nov 9, 2026): the
+                                        // Enter correction used to skip
+                                        // sentence-start capitalization
+                                        // entirely — Space had it, Enter
+                                        // didn't — so a corrected first
+                                        // word came out lowercase and the
+                                        // capital the user typed was lost.
+                                        // Same call as the Space path now.
                                         val enterFinal = Dictionary.RANK_CASING[enterCorrection.lowercase()]
-                                            ?: enterCorrection
+                                            ?: capitalizeForSentenceStart(enterCorrection, enterWord.length)
                                         ic.deleteSurroundingText(enterWord.length, 0)
                                         ic.commitText(enterFinal, 1)
                                         recordCommittedWord(enterCorrection)
-                                        lastCorrected = enterWord to enterCorrection
+                                        lastCorrected = enterWord to enterFinal
                                     } else {
                                         personal.noteTyped(enterWord)
                                         recordCommittedWord(enterWord)
@@ -1366,7 +1374,16 @@ class PressPopIME : InputMethodService() {
             ic.getTextBeforeCursor(charsBeforeWord + 64, 0)?.toString()
         } catch (e: Exception) {
             null
-        } ?: return word
+        } ?: return if (keyboardView.typedWordHadUpper) {
+            // Code 43: the field could not be read, so the
+            // sentence-start check cannot run — but the user
+            // typed a capital letter, so the correction must
+            // not strip it. Without this fallback the
+            // correction came out lowercase.
+            word.replaceFirstChar { it.uppercaseChar() }
+        } else {
+            word
+        }
         val beforeWord = before.dropLast(charsBeforeWord.coerceAtMost(before.length))
         return if (isSentenceStart(beforeWord)) {
             word.replaceFirstChar { it.uppercaseChar() }
