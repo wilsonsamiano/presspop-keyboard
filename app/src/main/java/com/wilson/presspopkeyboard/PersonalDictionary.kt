@@ -6,11 +6,13 @@ import android.content.Context
  * The "personal keyboard": words the user actually types.
  *
  * - Manual words: added in the app's My Words screen, active at once.
- * - Learned words: an unknown word typed at least seven times in real
+ * - Learned words: an unknown word typed at least 77 times in real
  *   use is promoted to a personal word, so it stops being
- *   autocorrected away. A word typed fewer than seven times is NOT
+ *   autocorrected away. A word typed fewer than 77 times is NOT
  *   learned, so a one-off typo does not stick. (Code 36, Wilson,
- *   Oct 30, 2026: not just twice — at least seven times.)
+ *   Oct 30, 2026: not just twice — at least seven times. Code 44,
+ *   Wilson, Nov 9, 2026: seven was still too little — raised to
+ *   77 times.)
  *
  * Stored only on the device, in SharedPreferences. Nothing is sent
  * anywhere. A personal word is never autocorrected, and it is offered
@@ -88,12 +90,12 @@ class PersonalDictionary(private val context: Context) {
         }
     }
 
-    /** Words learned from typing (count >= 7, code 36). */
+    /** Words learned from typing (count >= 77, code 36; raised to 77 in code 44). */
     fun learnedWords(): Set<String> {
         val counts = prefs.getStringSet("counts", emptySet()) ?: emptySet()
         return counts.mapNotNull { entry ->
             val parts = entry.split(":")
-            if (parts.size == 2 && (parts[1].toIntOrNull() ?: 0) >= 7) parts[0] else null
+            if (parts.size == 2 && (parts[1].toIntOrNull() ?: 0) >= 77) parts[0] else null
         }.toSet()
     }
 
@@ -102,11 +104,11 @@ class PersonalDictionary(private val context: Context) {
     // Code 39 (Wilson, Nov 3, 2026): bulk delete for My Words.
     // Removes every manual word AND every learned count, so a
     // learned word is gone just like a manual one — and so is
-    // progress toward learning (a word typed fewer than seven
-    // times), otherwise a word at six types would quietly
+    // progress toward learning (a word typed fewer than 77
+    // times), otherwise a word at 76 types would quietly
     // become personal again on its next type after a bulk
-    // delete. The 7-type rule itself is unchanged: after a
-    // bulk delete, a word needs seven fresh types to be
+    // delete. The 77-type rule itself is unchanged: after a
+    // bulk delete, a word needs 77 fresh types to be
     // learned again. Wilson then said yes for all sections,
     // so learned next-word pairs ("bigrams") are cleared
     // here too — otherwise a deleted word could still
@@ -129,7 +131,7 @@ class PersonalDictionary(private val context: Context) {
         if (old != null) counts.remove(old)
         counts.add("$w:${oldCount + 1}")
         prefs.edit().putStringSet("counts", counts).apply()
-        return oldCount + 1 == 7
+        return oldCount + 1 == 77
     }
 
     fun isPersonal(word: String): Boolean =
@@ -168,7 +170,7 @@ class PersonalDictionary(private val context: Context) {
     // keyboard has learned, in one JSON file the
     // user can keep anywhere (Drive, Files, email):
     // manual My Words (casing as added), learned
-    // counts (so progress toward the 7-type
+    // counts (so progress toward the 77-type
     // threshold survives a reinstall, not just
     // words already at 7), and learned word
     // pairs. Nothing else is in the file — no

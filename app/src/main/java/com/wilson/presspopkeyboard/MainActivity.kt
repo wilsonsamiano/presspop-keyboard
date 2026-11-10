@@ -29,7 +29,8 @@ import androidx.core.content.ContextCompat
  *   to stay Light even when Dark was chosen).
  * - My Words: personal words, active at once. They are never
  *   autocorrected and are suggested first. Learned words (typed
- *   at least seven times, code 36) appear here too, via the
+ *   at least 77 times, code 36; raised to 77 in code 44) appear
+ *   here too, via the
  *   personal dictionary. Contacts names can be imported here
  *   (code 36) so people's names are never autocorrected away.
  */
@@ -446,7 +447,7 @@ class MainActivity : AppCompatActivity() {
         // words that I can remove them?"
         // Previously, no: this screen only
         // listed MANUAL words, while learned
-        // words (typed at least seven times,
+        // words (typed at least 77 times,
         // or restored by undo) were stored
         // on-device but
         // never shown, so a learned typo like

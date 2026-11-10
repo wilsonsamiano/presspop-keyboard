@@ -455,13 +455,25 @@ class KeyboardView @JvmOverloads constructor(
         // not have to be memorised. Only Letters
         // mode has flick secondaries; 123 / #+= keys
         // already are the symbol, so they need none.
+        // Code 44 (Wilson, Nov 9, 2026): the map now
+        // mirrors the iPad's Key Flicks exactly,
+        // read straight off an iPad keyboard photo
+        // (iDownloadBlog, "How to type faster on
+        // iPad with Key Flicks"): home row @ # $ &
+        // * ( ) ' ", bottom row % - + = / ; :,
+        // ! on the comma key, ? on the period key.
+        // The old map had the home and bottom rows
+        // shifted by one symbol each (s was $, d was
+        // #, z was *, and so on) — every flick gave
+        // the neighbour's symbol.
         val SECONDARY = mapOf(
             'q' to "1", 'w' to "2", 'e' to "3", 'r' to "4", 't' to "5",
             'y' to "6", 'u' to "7", 'i' to "8", 'o' to "9", 'p' to "0",
-            'a' to "@", 's' to "$", 'd' to "#", 'f' to "%", 'g' to "&",
-            'h' to "-", 'j' to "+", 'k' to "(", 'l' to ")",
-            'z' to "*", 'x' to "\"", 'c' to "'", 'v' to ":",
-            'b' to ";", 'n' to "!", 'm' to "?"
+            'a' to "@", 's' to "#", 'd' to "$", 'f' to "&", 'g' to "*",
+            'h' to "(", 'j' to ")", 'k' to "'", 'l' to "\"",
+            'z' to "%", 'x' to "-", 'c' to "+", 'v' to "=", 'b' to "/",
+            'n' to ";", 'm' to ":",
+            ',' to "!", '.' to "?"
         )
 
         val ACCENTS = mapOf(

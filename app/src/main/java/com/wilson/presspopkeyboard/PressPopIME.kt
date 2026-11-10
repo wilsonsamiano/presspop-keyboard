@@ -68,7 +68,7 @@ import org.json.JSONObject
  * Personal keyboard: PersonalDictionary is loaded here and passed
  * to the view for predictions and swipe matches. Every committed
  * word is offered to it for learning (an unknown word typed at
- * least seven times becomes a personal word).
+ * least 77 times becomes a personal word).
  */
 class PressPopIME : InputMethodService() {
 
@@ -121,6 +121,16 @@ class PressPopIME : InputMethodService() {
     // to it, and it clears as soon as a new word
     // starts being typed.
     private var lastSwipeAlternative: Pair<String, String>? = null
+
+    // Code 44 (Wilson, Nov 9, 2026): autocorrect is
+    // suggest-only. Space / Enter no longer replace
+    // the word — the word stays as typed, and the
+    // correction is offered as a one-tap suggestion
+    // in the strip (middle slot) until the next word
+    // starts. (committed word, suggested correction).
+    // Tapping the middle slot applies it; tapping
+    // the left slot (the word as typed) dismisses it.
+    private var pendingCorrection: Pair<String, String>? = null
 
     // Last word committed in this session, for next-word
     // prediction (code 20). Updated whenever a word is
@@ -753,6 +763,10 @@ class PressPopIME : InputMethodService() {
                         KeyAction.SPACE -> handleSpace()
                         KeyAction.DELETE -> handleDelete()
                         KeyAction.ENTER -> {
+                            // Code 44: a suggestion from an
+                            // earlier word does not carry into
+                            // this Enter press.
+                            pendingCorrection = null
                             // Autocorrect on Enter, code 21: the
                             // last word before Enter used to be
                             // left uncorrected, because
@@ -770,8 +784,20 @@ class PressPopIME : InputMethodService() {
                                 InputType.TYPE_TEXT_VARIATION_PASSWORD ||
                                 enterVariation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                             if (enterWord.isNotEmpty() && !isPasswordField) {
+                                // Code 44: same field-word rule as
+                                // Space — see handleSpace. The
+                                // pronoun-I / rank / contraction /
+                                // personal branches act on a whole
+                                // word only; the correction check
+                                // runs on the word actually in the
+                                // field, so a backspace-and-retype
+                                // fix never gains a doubled letter.
+                                val enterFieldWord = fieldWordBeforeCursor()
+                                val enterCheckWord = enterFieldWord ?: enterWord
+                                val enterWholeWord = enterFieldWord == null ||
+                                    enterFieldWord.lowercase() == enterWord.lowercase()
                                 val enterPronounI = capitalizePronounI(enterWord)
-                                if (enterPronounI != null && enterWord != enterPronounI) {
+                                if (enterWholeWord && enterPronounI != null && enterWord != enterPronounI) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterPronounI, 1)
                                     recordCommittedWord(enterPronounI)
@@ -784,42 +810,50 @@ class PressPopIME : InputMethodService() {
                                 // its typed lowercase on Enter too.
                                 val enterPersonalCased = personal.allPersonalWords()
                                     .firstOrNull { it.lowercase() == enterWord.lowercase() && it != enterWord }
-                                if (enterRank != null && enterWord != enterRank) {
+                                if (enterWholeWord && enterRank != null && enterWord != enterRank) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterRank, 1)
                                     recordCommittedWord(enterRank)
-                                } else if (enterPersonalCased != null) {
+                                } else if (enterWholeWord && enterPersonalCased != null) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterPersonalCased, 1)
                                     recordCommittedWord(enterPersonalCased)
-                                } else if (enterContraction != null) {
+                                } else if (enterWholeWord && enterContraction != null) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterContraction, 1)
                                     recordCommittedWord(enterContraction)
                                     lastCorrected = enterWord to enterContraction
-                                } else if (!Dictionary.isWord(enterWord) &&
-                                    !personal.isPersonal(enterWord) &&
-                                    enterWord.all { it.code < 128 } &&
-                                    !keyboardView.typedWordHadUpper
+                                } else if (!Dictionary.isWord(enterCheckWord) &&
+                                    !personal.isPersonal(enterCheckWord) &&
+                                    enterCheckWord.all { it.code < 128 } &&
+                                    // Code 44: same relaxed guard as
+                                    // Space — a capital first letter
+                                    // alone is auto-shift, not a
+                                    // proper name; only capitals
+                                    // past the first block the
+                                    // suggestion.
+                                    !enterCheckWord.drop(1).any { it.isUpperCase() }
                                 ) {
                                     val enterCorrection = Dictionary.bestCorrection(
-                                        enterWord, personal.allPersonalWords()
+                                        enterCheckWord, personal.allPersonalWords()
                                     )
                                     if (enterCorrection != null) {
-                                        // Code 43 (Wilson, Nov 9, 2026): the
-                                        // Enter correction used to skip
-                                        // sentence-start capitalization
-                                        // entirely — Space had it, Enter
-                                        // didn't — so a corrected first
-                                        // word came out lowercase and the
-                                        // capital the user typed was lost.
-                                        // Same call as the Space path now.
-                                        val enterFinal = Dictionary.RANK_CASING[enterCorrection.lowercase()]
-                                            ?: capitalizeForSentenceStart(enterCorrection, enterWord.length)
-                                        ic.deleteSurroundingText(enterWord.length, 0)
-                                        ic.commitText(enterFinal, 1)
-                                        recordCommittedWord(enterCorrection)
-                                        lastCorrected = enterWord to enterFinal
+                                        // Code 44 (Wilson, Nov 9,
+                                        // 2026): Enter is suggest-only
+                                        // too — the word stays as
+                                        // typed, the correction is
+                                        // offered in the strip until
+                                        // the next word starts.
+                                        // Code 43's capitalization
+                                        // fix stays: the suggestion
+                                        // keeps a sentence-start
+                                        // capital, like Space.
+                                        val enterSuggestion = Dictionary.RANK_CASING[enterCorrection.lowercase()]
+                                            ?: capitalizeForSentenceStart(enterCorrection, enterCheckWord.length)
+                                        pendingCorrection = enterCheckWord to enterSuggestion
+                                        if (::strip.isInitialized) showSuggestionPopup(strip, enterSuggestion)
+                                        personal.noteTyped(enterWord)
+                                        recordCommittedWord(enterWord)
                                     } else {
                                         personal.noteTyped(enterWord)
                                         recordCommittedWord(enterWord)
@@ -845,6 +879,9 @@ class PressPopIME : InputMethodService() {
         }
 
         keyboardView.onSwipeWord = { word ->
+            // Code 44: a swiped word supersedes any pending
+            // correction suggestion from an earlier word.
+            pendingCorrection = null
             val ic = currentInputConnection
             // Auto-space after a swiped word, Oct 29, 2026 (Wilson):
             // a landed swipe used to leave the cursor right after
@@ -1290,6 +1327,44 @@ class PressPopIME : InputMethodService() {
         return trimmed.isEmpty() || trimmed.last() in ".?!\n"
     }
 
+    // Code 44 (Wilson, Nov 9, 2026): capitals belong only
+    // at a real sentence start — an empty field, or after
+    // . ? ! — never after a bare newline, which is a new
+    // line, not a new sentence. The old code used
+    // isSentenceStart here, so backspacing to fix a word
+    // at the start of a line turned shift on and the first
+    // retyped letter came out capital, and he had to erase
+    // it again. Prediction context still uses
+    // isSentenceStart above — a newline does end a
+    // prediction phrase, it just is not a capital.
+    private fun isCapitalizeStart(text: CharSequence?): Boolean {
+        if (text == null) return false
+        val trimmed = text.trimEnd()
+        return trimmed.isEmpty() || trimmed.last() in ".?!"
+    }
+
+    // Code 44: the word actually in the field right
+    // before the cursor, letters and apostrophes only.
+    // typedWord only knows what was typed since the
+    // last space — after a backspace-and-retype fix it
+    // is shorter than the word in the field (he leaves
+    // the "h" and retypes "ello", so typedWord is
+    // "ello" while the field holds "hello"). Reading
+    // the field word is what stops autocorrect adding
+    // a letter that is already there. Null when the
+    // field cannot be read; callers fall back to
+    // typedWord then.
+    private fun fieldWordBeforeCursor(): String? {
+        val ic = currentInputConnection ?: return null
+        val before = try {
+            ic.getTextBeforeCursor(64, 0)?.toString()
+        } catch (e: Exception) {
+            null
+        } ?: return null
+        val run = before.takeLastWhile { it.isLetter() || it == '\'' }
+        return run.ifEmpty { null }
+    }
+
     private fun updateAutoShift() {
         if (!autoCapitalize || !::keyboardView.isInitialized ||
             keyboardView.shiftLock
@@ -1300,7 +1375,7 @@ class PressPopIME : InputMethodService() {
         } catch (e: Exception) {
             null
         }
-        if (isSentenceStart(before)) {
+        if (isCapitalizeStart(before)) {
             keyboardView.shiftOn = true
         }
     }
@@ -1385,7 +1460,7 @@ class PressPopIME : InputMethodService() {
             word
         }
         val beforeWord = before.dropLast(charsBeforeWord.coerceAtMost(before.length))
-        return if (isSentenceStart(beforeWord)) {
+        return if (isCapitalizeStart(beforeWord)) {
             word.replaceFirstChar { it.uppercaseChar() }
         } else {
             word
@@ -1488,6 +1563,11 @@ class PressPopIME : InputMethodService() {
             return
         }
         lastSpaceTap = now
+        // Code 44: a suggestion from an earlier word does
+        // not carry into this Space press — the suggest
+        // branch below sets a fresh one if this word
+        // earns one.
+        pendingCorrection = null
         var committedWordThisSpace: String? = null
 
         // Code 26: in a password field, Space is just a
@@ -1502,8 +1582,23 @@ class PressPopIME : InputMethodService() {
             return
         }
         if (word.isNotEmpty()) {
+            // Code 44: the word actually in the field, and
+            // whether the typed word IS that whole word.
+            // After a backspace-and-retype fix the typed
+            // word is only the tail (typed "ello", field
+            // holds "hello") — the pronoun-I / rank /
+            // contraction / personal branches act on a
+            // whole word, so they only run when the typed
+            // word is the whole field word; the correction
+            // check below runs on the field word either
+            // way, so a letter already in the field is
+            // never added again.
+            val fieldWord = fieldWordBeforeCursor()
+            val checkWord = fieldWord ?: word
+            val wholeWord = fieldWord == null ||
+                fieldWord.lowercase() == word.lowercase()
             val pronounI = capitalizePronounI(word)
-            if (pronounI != null && word != pronounI) {
+            if (wholeWord && pronounI != null && word != pronounI) {
                 // Code 26, 2nd commit: standalone "i" -> "I",
                 // "i'm" -> "I'm", etc., anywhere in a sentence.
                 ic.deleteSurroundingText(word.length, 0)
@@ -1523,7 +1618,7 @@ class PressPopIME : InputMethodService() {
             // typed "angel"). See the branch below.
             val personalCased = personal.allPersonalWords()
                 .firstOrNull { it.lowercase() == word.lowercase() && it != word }
-            if (rankCased != null && word != rankCased) {
+            if (wholeWord && rankCased != null && word != rankCased) {
                 // Code 25: a typed rank comes out in its
                 // official casing on Space — Army all caps
                 // (sfc -> SFC), other branches as listed in
@@ -1534,7 +1629,7 @@ class PressPopIME : InputMethodService() {
                 ic.deleteSurroundingText(word.length, 0)
                 ic.commitText(rankCased, 1)
                 committedWordThisSpace = rankCased
-            } else if (personalCased != null) {
+            } else if (wholeWord && personalCased != null) {
                 // Code 38: tap-typed personal names did
                 // NOT get their stored casing on Space.
                 // A name is personal, so the autocorrect
@@ -1551,7 +1646,7 @@ class PressPopIME : InputMethodService() {
                 ic.deleteSurroundingText(word.length, 0)
                 ic.commitText(personalCased, 1)
                 committedWordThisSpace = personalCased
-            } else if (contraction != null) {
+            } else if (wholeWord && contraction != null) {
                 ic.deleteSurroundingText(word.length, 0)
                 ic.commitText(contraction, 1)
                 // Code 31: show the changed word in a
@@ -1562,46 +1657,55 @@ class PressPopIME : InputMethodService() {
                 if (::strip.isInitialized) showSuggestionPopup(strip, contraction)
                 lastCorrected = word to contraction
                 committedWordThisSpace = contraction
-            } else if (!Dictionary.isWord(word) && !personal.isPersonal(word) &&
-                word.all { it.code < 128 } &&
+            } else if (!Dictionary.isWord(checkWord) && !personal.isPersonal(checkWord) &&
+                checkWord.all { it.code < 128 } &&
                 // Code 24, proper-name / acronym guard: a word
-                // typed with any uppercase letter is likely a
-                // proper name (Guinard) or an acronym (SFC),
-                // not a typo. Without this, Space flipped
-                // SFC -> sec (distance 1) and Guinard ->
-                // guitar (distance 2), and those flips went
-                // out in chat before any undo could catch
-                // them. Contraction expansion above is NOT
-                // guarded: Dont -> don't is still wanted.
-                !keyboardView.typedWordHadUpper
+                // with an uppercase letter PAST the first is
+                // likely a proper name (Guinard) or an acronym
+                // (SFC), not a typo. A capital first letter
+                // alone is just auto-shift at a sentence
+                // start, so it no longer blocks the
+                // suggestion — "Helo" at a sentence start
+                // still gets offered "Hello". Without this
+                // guard Space flipped SFC -> sec (distance
+                // 1) and Guinard -> guitar (distance 2),
+                // and those flips went out in chat before
+                // any undo could catch them. Contraction
+                // expansion above is NOT guarded: Dont ->
+                // don't is still wanted.
+                !checkWord.drop(1).any { it.isUpperCase() }
             ) {
-                val correction = Dictionary.bestCorrection(word, personal.allPersonalWords())
+                // Code 44 (Wilson, Nov 9, 2026): autocorrect
+                // is SUGGEST-ONLY now. The word stays as
+                // typed — nothing is replaced on Space — and
+                // the correction is offered in the strip's
+                // middle slot (and a bubble) until the next
+                // word starts; tapping it applies it, tapping
+                // the left slot (the word as typed) dismisses
+                // it. The check runs on the field word, not
+                // just the typed tail, so fixing "hello" by
+                // retyping "ello" after the "h" finds the
+                // field word already correct and offers
+                // nothing, instead of adding a second "h".
+                val correction = Dictionary.bestCorrection(checkWord, personal.allPersonalWords())
                 if (correction != null) {
-                    val finalCorrection =
+                    val suggestion =
                         Dictionary.RANK_CASING[correction.lowercase()]
-                            ?: capitalizeForSentenceStart(correction, word.length)
-                    showDebug("Autocorrect: '$word' -> '$finalCorrection'")
-                    ic.deleteSurroundingText(word.length, 0)
-                    ic.commitText(finalCorrection, 1)
-                    // Code 31: autocorrect acknowledgement
-                    // — the whole corrected word pops in
-                    // a bubble above the keyboard (the
-                    // suggestion-popup window, anchored
-                    // to the strip), for 500ms, instead
-                    // of popping below the space bar.
-                    if (::strip.isInitialized) showSuggestionPopup(strip, finalCorrection)
-                    lastCorrected = word to finalCorrection
-                    committedWordThisSpace = finalCorrection
-                    // Do NOT learn the typo as a personal word: a
-                    // corrected typo is not a word the user wants to
-                    // keep, and learning it after two corrections
-                    // would make autocorrect stop correcting it.
+                            ?: capitalizeForSentenceStart(correction, checkWord.length)
+                    showDebug("Suggestion: '$checkWord' -> '$suggestion' (not replaced)")
+                    pendingCorrection = checkWord to suggestion
+                    if (::strip.isInitialized) showSuggestionPopup(strip, suggestion)
+                    // The word is committed as typed, so it
+                    // counts toward learning like any other
+                    // typed word — the old code skipped this
+                    // because the typo was replaced, not kept.
+                    personal.noteTyped(word)
                 } else {
-                    showDebug("Autocorrect: '$word' -> no correction (left as typed)")
+                    showDebug("Suggestion: '$checkWord' -> no correction (left as typed)")
                     personal.noteTyped(word)
                 }
             } else {
-                showDebug("Autocorrect: '$word' left alone (known/personal word)")
+                showDebug("Suggestion: '$checkWord' left alone (known/personal word)")
                 personal.noteTyped(word)
             }
             keyboardView.personalWords = personal.allPersonalWords()
@@ -1735,18 +1839,50 @@ class PressPopIME : InputMethodService() {
             }
         }
         val swipeAlt = lastSwipeAlternative
+        // Code 44, pending correction: a suggestion offered
+        // after Space / Enter clears as soon as a new word
+        // starts being typed, and it is only valid while the
+        // cursor is still right after the committed word
+        // plus its space or newline — same staleness shape
+        // as the swipe twin above.
+        if (word.isNotEmpty()) pendingCorrection = null
+        if (pendingCorrection != null) {
+            val pend = pendingCorrection!!
+            val beforeCursor = try {
+                currentInputConnection?.getTextBeforeCursor(pend.first.length + 2, 0)?.toString()
+            } catch (e: Exception) {
+                null
+            }
+            if (beforeCursor?.endsWith(pend.first + " ") != true &&
+                beforeCursor?.endsWith(pend.first + "\n") != true
+            ) {
+                pendingCorrection = null
+            }
+        }
+        val pending = pendingCorrection
         // Left slot: the word as typed, or the pre-autocorrect word
         // right after a correction (tap it to undo the correction),
         // or the apostrophe twin right after a swipe
-        // (tap it to swap "well" for "we'll").
+        // (tap it to swap "well" for "we'll"), or the committed
+        // word while a correction is being offered (tap it to
+        // dismiss the suggestion and keep the word as typed).
         val left = when {
+            pending != null && word.isEmpty() -> pending.first
             corrected != null && word.isEmpty() -> corrected.first
             swipeAlt != null && word.isEmpty() -> swipeAlt.first
             word.isNotEmpty() -> word
             else -> ""
         }
-        val middle = if (word.isEmpty()) nextWords.getOrNull(0) ?: "" else completions.getOrNull(0) ?: ""
-        val right = if (word.isEmpty()) nextWords.getOrNull(1) ?: "" else completions.getOrNull(1) ?: ""
+        val middle = when {
+            pending != null && word.isEmpty() -> pending.second
+            word.isEmpty() -> nextWords.getOrNull(0) ?: ""
+            else -> completions.getOrNull(0) ?: ""
+        }
+        val right = when {
+            pending != null && word.isEmpty() -> nextWords.getOrNull(0) ?: ""
+            word.isEmpty() -> nextWords.getOrNull(1) ?: ""
+            else -> completions.getOrNull(1) ?: ""
+        }
         val texts = listOf(left, middle, right)
         suggestionViews.forEachIndexed { i, view ->
             view.text = texts[i]
@@ -1941,6 +2077,46 @@ class PressPopIME : InputMethodService() {
             showSuggestionPopup(view, swipeAlt.first)
             return
         }
+        // Code 44, pending correction (suggest-only
+        // autocorrect): after Space / Enter the strip
+        // shows the committed word on the left and the
+        // suggested correction in the middle. Tapping
+        // the left slot dismisses it — the word stays
+        // as typed. Tapping the middle slot applies it:
+        // delete the committed word plus its space or
+        // newline, commit the suggestion plus that
+        // terminator. The field is re-checked first, so
+        // a stale suggestion never edits the wrong word.
+        val pending = pendingCorrection
+        if (pending != null && keyboardView.typedWord.isEmpty()) {
+            if (index == 0 && suggestion == pending.first) {
+                pendingCorrection = null
+                refreshSuggestions("")
+                return
+            }
+            if (index == 1 && suggestion == pending.second) {
+                val before = try {
+                    ic.getTextBeforeCursor(pending.first.length + 2, 0)?.toString()
+                } catch (e: Exception) {
+                    null
+                }
+                val terminator = when {
+                    before?.endsWith(pending.first + " ") == true -> " "
+                    before?.endsWith(pending.first + "\n") == true -> "\n"
+                    else -> return
+                }
+                val charsToDrop = pending.first.length + 1
+                ic.deleteSurroundingText(charsToDrop, 0)
+                ic.commitText(pending.second + terminator, 1)
+                recordCommittedWord(pending.second)
+                pendingCorrection = null
+                keyboardView.setTypedWord("")
+                refreshSuggestions("")
+                showSuggestionPopup(view, pending.second)
+                updateAutoShift()
+                return
+            }
+        }
         // Next-word tap, code 20: no word is being typed, so
         // this is a predicted next word, not a completion.
         // Commit it plus a space, learn the pair, and offer the
@@ -1953,6 +2129,10 @@ class PressPopIME : InputMethodService() {
         // through to the completion path, which added no
         // space — the bug Wilson reported on code 23.
         if (keyboardView.typedWord.isEmpty() && index != 0) {
+            // Code 44: tapping a next word moves on from
+            // any pending correction — the word stays as
+            // typed, the suggestion goes away.
+            pendingCorrection = null
             val nextWord = capitalizePronounI(suggestion)
                 ?: Dictionary.RANK_CASING[suggestion.lowercase()]
                 ?: capitalizeForSentenceStart(suggestion, 0)
@@ -1976,12 +2156,18 @@ class PressPopIME : InputMethodService() {
         // Contraction expansion, code 21, for a tapped
         // suggestion that is a no-apostrophe form.
         val expandedSuggestion = Dictionary.CONTRACTIONS[suggestion.lowercase()] ?: suggestion
+        // Code 44: delete the whole word in the field, not
+        // just the typed tail — same backspace-and-retype
+        // fix as Space: typed "ello" after a leftover "h"
+        // must replace "hello", not leave "h" in front of
+        // the completion.
+        val fieldWordForTap = fieldWordBeforeCursor() ?: word
         // Capitalize before deleting, for the same reason as above.
         val finalSuggestion = capitalizePronounI(expandedSuggestion)
             ?: Dictionary.RANK_CASING[expandedSuggestion.lowercase()]
-            ?: capitalizeForSentenceStart(expandedSuggestion, word.length)
+            ?: capitalizeForSentenceStart(expandedSuggestion, fieldWordForTap.length)
         if (word.isNotEmpty()) {
-            ic.deleteSurroundingText(word.length, 0)
+            ic.deleteSurroundingText(fieldWordForTap.length, 0)
         }
         // Code 25: tapping a predicted / completion word
         // adds a space after it, as Wilson asked on code
