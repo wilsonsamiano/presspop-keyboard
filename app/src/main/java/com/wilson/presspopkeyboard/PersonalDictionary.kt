@@ -266,7 +266,19 @@ class PersonalDictionary(private val context: Context) {
         val countsArray = json.optJSONArray("counts")
         if (countsArray != null) {
             for (i in 0 until countsArray.length()) {
-                if (mergeCounted("counts", countsArray.optString(i), Regex("[a-z]+:[0-9]+"))) changed++
+                // Code 45: an old backup can carry the
+                // dictionary-word counts noteTyped used to
+                // store ("the:50" and the like) — those are
+                // junk from the old bug, not learned words,
+                // so they are skipped on import instead of
+                // being merged back in and re-learned at 77
+                // types. Bigrams below are NOT filtered:
+                // pairs of dictionary words are legitimate
+                // sentence habits.
+                val entry = countsArray.optString(i)
+                val w = entry.substringBefore(":")
+                if (Dictionary.isWord(w)) continue
+                if (mergeCounted("counts", entry, Regex("[a-z]+:[0-9]+"))) changed++
             }
         }
         val bigramsArray = json.optJSONArray("bigrams")

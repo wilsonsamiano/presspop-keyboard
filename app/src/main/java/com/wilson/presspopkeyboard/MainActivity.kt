@@ -42,6 +42,13 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         personal = PersonalDictionary(this)
+        // Code 45: same one-time purge as the keyboard
+        // itself — the app can open straight to My Words
+        // before the keyboard ever runs, and the list
+        // reads learnedWords() directly, so the purge
+        // has to run here too. Flag-guarded, so the
+        // second call (whichever runs second) is a no-op.
+        personal.purgeDictionaryWordsOnce()
         ErrorReporter.install(this)
         UpdateChecker.checkAuto(this)
 
