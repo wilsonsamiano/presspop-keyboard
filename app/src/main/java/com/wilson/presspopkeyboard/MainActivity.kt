@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
@@ -74,6 +75,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.updateButton).setOnClickListener {
             UpdateChecker.check(this)
         }
+        // Code 45 (Wilson, Nov 9, 2026): the Install button
+        // for a finished download. It appears here on the
+        // main screen and stays until the update is
+        // installed, so a missed system prompt never
+        // strands a downloaded update. Refreshed on open
+        // and every time we come back (see onResume).
+        findViewById<Button>(R.id.installUpdateButton).setOnClickListener {
+            if (!UpdateChecker.installDownloadedApk(this)) {
+                refreshInstallButton()
+            }
+        }
+        refreshInstallButton()
 
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         val themeButton = findViewById<Button>(R.id.themeButton)
@@ -700,6 +713,30 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.importBackupButton).setOnClickListener {
             backupLauncher.launch("*/*")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Code 45: the Install button has to be re-checked
+        // every time we come back — a download can finish
+        // while the app is open, or the user can return
+        // from the system installer without installing.
+        refreshInstallButton()
+    }
+
+    // Code 45 (Wilson, Nov 9, 2026): show the Install
+    // button only when a downloaded update is waiting
+    // that is newer than the installed app; hide it
+    // otherwise (nothing downloaded, or already installed).
+    private fun refreshInstallButton() {
+        val button = findViewById<Button>(R.id.installUpdateButton) ?: return
+        val tag = UpdateChecker.downloadedUpdateTag(this)
+        if (tag != null) {
+            button.visibility = View.VISIBLE
+            button.text = "Install update ($tag)"
+        } else {
+            button.visibility = View.GONE
         }
     }
 
