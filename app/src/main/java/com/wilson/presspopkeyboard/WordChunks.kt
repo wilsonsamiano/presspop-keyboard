@@ -1835,6 +1835,11 @@ object WordChunk10 {
         "mgysgt", "2ndlt", "1stlt", "ltcol", "bgen", "majgen", "ltgen", "amn", "a1c", "sra",
         "ssgt", "tsgt", "msgt", "smsgt", "cmsgt", "ens", "ltjg", "lcdr", "cpo", "scpo",
         "mcpo", "po1", "po2", "po3", "radm", "vadm", "cwo2", "cwo3", "cwo4", "cwo5",
-        "maj"
+        "maj",
+        // Code 47: proper English words the list was missing —
+        // the typo test expects embarass -> embarrass and
+        // harrass -> harass. Lowest-frequency end, so they only
+        // win when clearly the closest match.
+        "embarrass", "harass"
     )
 }

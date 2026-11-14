@@ -217,6 +217,78 @@ class PressPopIME : InputMethodService() {
         }
         return committedHistory.toList()
     }
+    // Typing-quality patch: the words BEFORE the word being typed
+    // (up to 4, lowercase), for context-aware ranking. Unlike
+    // lastWordsBeforeCursor, the trailing partial/typed word is
+    // stripped off first, so the n-gram model sees only real context.
+    // Empty at a sentence start (newline, or after . ? !).
+    private fun contextWordsBeforeCurrent(): List<String> {
+        if (isPasswordField()) return emptyList()
+        val ic = currentInputConnection
+        if (ic != null) {
+            try {
+                val before = ic.getTextBeforeCursor(120, 0)?.toString() ?: ""
+                val tail = before.takeLastWhile { it.isLetter() || it == '\'' }
+                val head = before.dropLast(tail.length)
+                val trimmed = head.trimEnd(' ', '\t')
+                if (trimmed.isEmpty() || trimmed.endsWith("\n") ||
+                    trimmed.endsWith(".") || trimmed.endsWith("?") || trimmed.endsWith("!")
+                ) {
+                    return emptyList()
+                }
+                val words = Regex("[A-Za-z']+").findAll(head).map { it.value.lowercase() }.toList()
+                if (words.isNotEmpty()) return words.takeLast(4)
+            } catch (e: Exception) {
+                // Fall through to committed history.
+            }
+        }
+        return committedHistory.toList().takeLast(4)
+    }
+
+    // Ordered next-word predictions for [ctx]: learned pairs first,
+    // then the n-gram model, trigram, bigram (same order the strip
+    // has always used for next-word offers).
+    private fun predictedNext(ctx: List<String>): List<String> {
+        if (ctx.isEmpty()) return emptyList()
+        val prev = ctx.last()
+        val prevPrev = if (ctx.size >= 2) ctx[ctx.size - 2] else ""
+        val trigram = if (prevPrev.isNotEmpty()) {
+            Dictionary.TRIGRAMS["$prevPrev $prev"] ?: emptyList()
+        } else emptyList()
+        return (personal.learnedNextWords(prev) + NgramModel.nextWords(ctx) +
+            trigram + (Dictionary.BIGRAMS[prev] ?: emptyList()))
+            .distinct().take(12)
+    }
+
+    // Count a committed word toward learning. A capital first letter
+    // that is NOT at a sentence start is evidence of a name, so the
+    // learned word can later show capitalized ("Guinard").
+    private fun learnWord(w: String) {
+        val capMid = w.firstOrNull()?.isUpperCase() == true &&
+            contextWordsBeforeCurrent().isNotEmpty() &&
+            Dictionary.specialCasing(w.lowercase()) != w
+        personal.noteTyped(w, capMid)
+    }
+
+    // Suggest-only hint for a VALID word that the context says is
+    // probably another word (form -> from, their -> there). Sets the
+    // same pending suggestion as a typo correction. Returns true if
+    // a hint was offered.
+    private fun offerRealWordFix(word: String): Boolean {
+        if (word.length < 2 || isPasswordField()) return false
+        if (!word.all { it.code < 128 && it.isLetter() || it == '\'' }) return false
+        if (word.drop(1).any { it.isUpperCase() }) return false
+        if (!Dictionary.isWord(word) || personal.isPersonal(word)) return false
+        val alt = Dictionary.contextualAlternative(word, predictedNext(contextWordsBeforeCurrent()))
+            ?: return false
+        val suggestion = Dictionary.specialCasing(alt.lowercase())
+            ?: capitalizeForSentenceStart(alt, word.length)
+        showDebug("Context hint: '$word' -> '$suggestion' (not replaced)")
+        pendingCorrection = word to suggestion
+        if (::strip.isInitialized) showSuggestionPopup(strip, suggestion)
+        return true
+    }
+
     private var darkMode = false
     // Auto-capitalization for this field: on for plain text, off for
     // passwords, email addresses, URLs, numbers and phone fields.
@@ -856,14 +928,15 @@ class PressPopIME : InputMethodService() {
                                             ?: capitalizeForSentenceStart(enterCorrection, enterCheckWord.length)
                                         pendingCorrection = enterCheckWord to enterSuggestion
                                         if (::strip.isInitialized) showSuggestionPopup(strip, enterSuggestion)
-                                        personal.noteTyped(enterCheckWord)
+                                        learnWord(enterCheckWord)
                                         recordCommittedWord(enterWord)
                                     } else {
-                                        personal.noteTyped(enterCheckWord)
+                                        learnWord(enterCheckWord)
                                         recordCommittedWord(enterWord)
                                     }
                                 } else {
-                                    personal.noteTyped(enterCheckWord)
+                                    learnWord(enterCheckWord)
+                                    offerRealWordFix(enterCheckWord)
                                     recordCommittedWord(enterWord)
                                 }
                                 keyboardView.setTypedWord("")
@@ -945,7 +1018,7 @@ class PressPopIME : InputMethodService() {
                 keyboardView.shiftOn = false
             }
             recordCommittedWord(swipedWord)
-            if (!isPasswordField()) personal.noteTyped(swipedWord)
+            if (!isPasswordField()) learnWord(swipedWord)
             keyboardView.personalWords = personal.allPersonalWords()
             keyboardView.setTypedWord("")
             refreshSuggestions("")
@@ -1696,14 +1769,17 @@ class PressPopIME : InputMethodService() {
                     // counts toward learning like any other
                     // typed word — the old code skipped this
                     // because the typo was replaced, not kept.
-                    personal.noteTyped(checkWord)
+                    learnWord(checkWord)
                 } else {
                     showDebug("Suggestion: '$checkWord' -> no correction (left as typed)")
-                    personal.noteTyped(checkWord)
+                    learnWord(checkWord)
                 }
             } else {
                 showDebug("Suggestion: '$checkWord' left alone (known/personal word)")
-                personal.noteTyped(checkWord)
+                learnWord(checkWord)
+                // Valid word, but the context may say it is another
+                // word (form/from, their/there): hint only, no edit.
+                offerRealWordFix(checkWord)
             }
             keyboardView.personalWords = personal.allPersonalWords()
             } // end pronoun-I else block
@@ -1728,7 +1804,7 @@ class PressPopIME : InputMethodService() {
         if (word.isNotEmpty()) {
             // Count the whole word in the field, not just the typed
             // tail left after a backspace-and-retype fix.
-            personal.noteTyped(fieldWordBeforeCursor() ?: word)
+            learnWord(fieldWordBeforeCursor() ?: word)
             keyboardView.personalWords = personal.allPersonalWords()
         }
     }
@@ -1790,37 +1866,31 @@ class PressPopIME : InputMethodService() {
             val (_, prevWord) = lastTwoWordsBeforeCursor()
             keyboardView.previousWord = prevWord
         }
-        // Next-word prediction, code 20: when no word is being
-        // typed (right after a Space or a swiped word), the
-        // middle/right slots offer the most likely NEXT word,
-        // learned pairs first, then the generic BIGRAMS table.
-        // Tapping one commits it plus a space, so the next
-        // next-word offer appears at once.
-        val nextWords = if (word.isEmpty()) {
-            val (prevPrev, prev) = lastTwoWordsBeforeCursor()
-            if (prev.isNotEmpty()) {
-                val trigram = if (prevPrev.isNotEmpty()) {
-                    Dictionary.TRIGRAMS["$prevPrev $prev"] ?: emptyList()
-                } else emptyList()
-                // Code 23 order: learned pairs first, then
-                // the bigger n-gram model, then trigram,
-                // then bigram. The n-gram model reads the
-                // last 4 words, so it wins over a 2-word
-                // phrase where both exist.
-                val ngram = NgramModel.nextWords(lastWordsBeforeCursor())
-                (personal.learnedNextWords(prev) + ngram + trigram + (Dictionary.BIGRAMS[prev] ?: emptyList()))
-                    .distinct().take(2)
-            } else emptyList()
-        } else emptyList()
+        // Typing-quality patch: one prediction list from the real
+        // context (the words BEFORE the one being typed). With no word
+        // typed it is the next-word offer and the swipe context; with a
+        // word typed it boosts matching completions and corrections.
+        // With no word typed this keeps the long-standing context rule
+        // (everything before the cursor); with a word typed, the typed
+        // part is stripped so only the real context remains.
+        val contextPredicted = when {
+            word.isEmpty() -> predictedNext(lastWordsBeforeCursor())
+            word.length >= 2 -> predictedNext(contextWordsBeforeCurrent())
+            else -> emptyList()
+        }
+        if (word.isEmpty() && ::keyboardView.isInitialized) {
+            keyboardView.contextWords = contextPredicted
+        }
+        val nextWords = if (word.isEmpty()) contextPredicted.take(2) else emptyList()
         val baseCompletions = if (word.length >= 2) {
-            Dictionary.completions(word, personalWords)
+            Dictionary.completions(word, personalWords, contextPredicted)
         } else emptyList()
         // Mid-word fix: when few prefix completions exist, offer
         // the best correction too, so a typo like "helo" can be
         // fixed from the strip before Space. Tapping it replaces
         // the whole field word (see onSuggestionTapped).
         val midWordFix = if (word.length >= 3 && baseCompletions.size < 2) {
-            Dictionary.bestCorrection(word, personalWords)
+            Dictionary.bestCorrection(word, personalWords, contextPredicted)
         } else null
         val completions = (baseCompletions + listOfNotNull(midWordFix)).distinct()
         val corrected = lastCorrected
@@ -2102,7 +2172,11 @@ class PressPopIME : InputMethodService() {
                 // word": count it as several types so a name or
                 // slang word the keyboard keeps flagging is learned
                 // sooner than 77 plain types.
-                personal.noteKept(pending.first)
+                val keptWord = pending.first
+                val keptCapMid = keptWord.firstOrNull()?.isUpperCase() == true &&
+                    contextWordsBeforeCurrent().isNotEmpty() &&
+                    Dictionary.specialCasing(keptWord.lowercase()) != keptWord
+                personal.noteKept(keptWord, keptCapMid)
                 keyboardView.personalWords = personal.allPersonalWords()
                 refreshSuggestions("")
                 return

@@ -78,6 +78,12 @@ class KeyboardView @JvmOverloads constructor(
     // Code 36, swipe research: previous word before the
     // cursor, set by PressPopIME, for bigram rescoring.
     var previousWord: String = ""
+    // Typing-quality patch: the ordered next-word predictions for
+    // the words before the cursor (learned pairs, n-gram, trigram,
+    // bigram), set by PressPopIME, so swipe rescoring uses the whole
+    // sentence context and the user's own habits, not just the one
+    // previous word against the generic BIGRAMS table.
+    var contextWords: List<String> = emptyList()
     private var downAction: KeyAction? = null
     private var downTimeMs: Long = 0L
     // Code 39 (Wilson, Nov 3, 2026): two-thumb ghost swipe.
@@ -1068,6 +1074,8 @@ class KeyboardView @JvmOverloads constructor(
         val personalLowerList = personalList.map { it.lowercase() }
         val prev = previousWord.lowercase()
         val bigramNext = if (prev.isNotEmpty()) Dictionary.BIGRAMS[prev] ?: emptyList() else emptyList()
+        val contextRank = HashMap<String, Int>()
+        for ((ci, cw) in contextWords.withIndex()) contextRank.putIfAbsent(cw.lowercase(), ci)
         data class Scored(val word: String, val geometry: Float, val rescore: Float)
         fun scoreCandidates(allowedStarts: Set<String>?): List<Scored> {
             val out = mutableListOf<Scored>()
@@ -1134,7 +1142,14 @@ class KeyboardView @JvmOverloads constructor(
                 val rank = Dictionary.rankOf(lower)
                 if (rank != null && rank < 500) rescore -= keyW * 0.25f
                 else if (rank != null && rank < 4000) rescore -= keyW * 0.12f
-                if (lower in bigramNext) rescore -= keyW * 0.30f
+                val ctxRank = contextRank[lower]
+                if (ctxRank != null) {
+                    // Predicted by the sentence so far: the top
+                    // few predictions get a slightly bigger nudge.
+                    rescore -= keyW * (if (ctxRank < 3) 0.40f else 0.30f)
+                } else if (lower in bigramNext) {
+                    rescore -= keyW * 0.30f
+                }
                 for (dl in dwelled) {
                     if (lower.contains(dl + dl)) { rescore -= keyW * 0.25f; break }
                 }

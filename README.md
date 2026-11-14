@@ -19,14 +19,6 @@ Every key, not just letters:
 
 ## Features (v2, all on-device, no network, no data sent anywhere)
 
-- **Predictive hit areas — the original-iPhone trick.** The visible
-  keys never move or resize, but the invisible touch zone of the most
-  likely next letter is widened, using a built-in dictionary. A finger
-  landing between two keys picks the letter the dictionary expects;
-  a dead-centre tap on a neighbour still wins. This is how Apple's
-  original iPhone keyboard worked (US Patent 8,232,973: hit regions
-  grow for likely letters while the visible keyboard stays the same;
-  e.g. after "T", the "H" zone grows so "the" is easier to type).
 - **Swipe / glide typing.** Glide across letters and lift: the path
   is matched against the dictionary (personal words first). A blue
   trail follows your finger.

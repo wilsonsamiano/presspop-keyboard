@@ -6,9 +6,11 @@ import kotlin.math.min
 
 /**
  * Built-in English dictionary (17,398 words, code 27 2nd commit — cleaned from 20,143, see WordChunks.kt; code 39 added swipes/swiped/swiping). It powers:
- * 1. Predictive hit areas - which letters can follow the word so far.
- * 2. Swipe typing - which word a glide path most likely spells.
- * 3. Autocorrect + suggestions - completions and near-miss corrections.
+ * 1. Swipe typing - which word a glide path most likely spells.
+ * 2. Autocorrect + suggestions - completions and near-miss corrections,
+ *    ranked by context (the words before the cursor) when available.
+ * 3. Real-word typo hints - a valid word that the context says is
+ *    probably another word (form/from, their/there), suggest-only.
  * 4. Next-word prediction (code 20) - BIGRAMS below, plus pairs
  *    the user actually types, learned on-device in PersonalDictionary.
  * Everything runs on-device, with no network and no data leaving
@@ -697,7 +699,7 @@ object Dictionary {
 
     /**
      * Keyboard-aware Damerau/OSA distance with early exit: returns
-     * Float.MAX_VALUE once every cell in a row exceeds [limit].
+     * Float.MAX_VALUE once two consecutive rows have every cell above [limit].
      * Three rolling rows (caller-provided scratch, each at least
      * b.length + 1 long) instead of a full table per candidate.
      */
@@ -711,6 +713,7 @@ object Dictionary {
         var prev = s1
         var cur = s2
         for (j in 0..m) prev[j] = j.toFloat()
+        var prevMin = 0f // smallest value in the previous row (row 0 holds 0)
         for (i in 1..n) {
             cur[0] = i.toFloat()
             var rowMin = cur[0]
@@ -726,7 +729,11 @@ object Dictionary {
                 cur[j] = v
                 if (v < rowMin) rowMin = v
             }
-            if (rowMin > limit) return Float.MAX_VALUE
+            // A transposition reads two rows back, so a row can look
+            // too expensive while the row before it is still in range:
+            // only give up when BOTH exceed the limit.
+            if (rowMin > limit && prevMin > limit) return Float.MAX_VALUE
+            prevMin = rowMin
             val t = prev2; prev2 = prev; prev = cur; cur = t
         }
         return prev[m]
@@ -737,18 +744,18 @@ object Dictionary {
         return word.lowercase() in wordSet
     }
 
-    /** Words starting with [prefix], personal words first.
-     * Apostrophe forms are offered next, code 21 (Wilson:
-     * words that should be with an apostrophe, like there's
-     * and that's, should give me options as suggestions).
-     * Without this, there's/that's sit at the end of the
-     * 20,000-word list, past the take(5) cutoff, so typing
-     * "ther" or "that" never offered them — even though
-     * they are the word he wants. Now typing "theres"
-     * offers "there's", typing "that" offers "that's",
-     * and so on, as a tap choice, not only as a Space
-     * auto-expansion. */
-    fun completions(prefix: String, extra: Collection<String> = emptyList()): List<String> {
+    /**
+     * Words starting with [prefix]: personal first, then words the
+     * CONTEXT predicts (the [boost] list, e.g. next-word predictions for
+     * the words before the cursor — so "going to the be" offers "beach"
+     * first), then apostrophe forms, then everything else by frequency.
+     * A boost word must be a real dictionary word (or personal word).
+     */
+    fun completions(
+        prefix: String,
+        extra: Collection<String> = emptyList(),
+        boost: Collection<String> = emptyList()
+    ): List<String> {
         if (prefix.length < 2) return emptyList()
         ensureIndex()
         val p = prefix.lowercase()
@@ -762,6 +769,13 @@ object Dictionary {
             personalLower.add(l)
             if (l.startsWith(p)) personal.add(e)
         }
+        // Context-predicted words that continue the typed prefix, in
+        // the order the predictor ranked them.
+        val boosted = ArrayList<String>()
+        for (b in boost) {
+            val bl = b.lowercase()
+            if (bl.startsWith(p) && bl !in personalLower && bl in wordSet && bl !in boosted) boosted.add(bl)
+        }
         // Binary search: first index whose word is >= p.
         var lo = 0
         var hi = sortedWords.size
@@ -773,7 +787,7 @@ object Dictionary {
         var i = lo
         while (i < sortedWords.size && sortedWords[i].startsWith(p)) {
             val w = sortedWords[i]
-            if (w !in personalLower) hits.add(w)
+            if (w !in personalLower && w !in boosted) hits.add(w)
             i++
         }
         hits.sortBy { wordRank[it] ?: Int.MAX_VALUE }
@@ -784,8 +798,12 @@ object Dictionary {
         // A brand that is also an ordinary word (apple)
         // is offered as "Apple" here — a tap choice —
         // but Space never forces it (see brandCasing).
-        return (personal + apostrophe + common).distinct().take(5)
+        // The casing map runs before the final distinct,
+        // so a brand with two keys (cocacola, coca-cola)
+        // shows once, not twice.
+        return (personal + boosted + apostrophe + common)
             .map { RANK_CASING[it.lowercase()] ?: BRAND_CASING[it.lowercase()] ?: it }
+            .distinct().take(5)
     }
 
     /**
@@ -881,9 +899,15 @@ object Dictionary {
      * cost (adjacent-key slips and transpositions 0.6, others 1.0)
      * plus a frequency penalty of at most 0.5, so frequency only
      * breaks ties inside one edit-cost step: a distance-2 word never
-     * beats a distance-1 word. Personal words get a small bonus.
+     * beats a distance-1 word. Personal words get a small bonus, and
+     * so do words in [boost] (the context's predicted next words), so
+     * "wihc" after "from" can prefer the contextually likely word.
      */
-    fun bestCorrection(word: String, extra: Collection<String> = emptyList()): String? {
+    fun bestCorrection(
+        word: String,
+        extra: Collection<String> = emptyList(),
+        boost: Collection<String> = emptyList()
+    ): String? {
         val w = word.lowercase()
         if (w.length < 3) return null
         if (w.any { it.code > 127 }) return null // accented word: do not "correct" it away
@@ -894,6 +918,8 @@ object Dictionary {
         val limit = if (w.length <= 4) 1f else 2f
         val maxLenGap = limit.toInt()
         val rankScale = ln(1f + wordSet.size)
+        val boostLower = HashSet<String>()
+        for (b in boost) boostLower.add(b.lowercase())
         val cap = w.length + maxLenGap + 2
         val s0 = FloatArray(cap)
         val s1 = FloatArray(cap)
@@ -907,7 +933,8 @@ object Dictionary {
             val dist = weightedDistance(w, cl, limit, s0, s1, s2)
             if (dist > limit) return
             val freqPenalty = if (rank == null) 0.5f else 0.5f * ln(1f + rank) / rankScale
-            val score = dist + freqPenalty - (if (isPersonal) 0.2f else 0f)
+            var score = dist + freqPenalty - (if (isPersonal) 0.2f else 0f)
+            if (cl in boostLower) score -= 0.35f
             if (score < bestScore) {
                 bestScore = score
                 best = cand
@@ -920,6 +947,81 @@ object Dictionary {
             consider(wordsOrig[i], i, false)
         }
         return best
+    }
+
+    // ---------- Real-word typo hints (suggest-only) ----------
+    private const val REAL_WORD_WINDOW = 8
+
+    private val CONFUSABLE_GROUPS = listOf(
+        listOf("their", "there", "they're"),
+        listOf("your", "you're"),
+        listOf("its", "it's"),
+        listOf("to", "too", "two"),
+        listOf("then", "than"),
+        listOf("affect", "effect"),
+        listOf("loose", "lose"),
+        listOf("were", "where", "we're"),
+        listOf("whether", "weather"),
+        listOf("accept", "except"),
+        listOf("quiet", "quite"),
+        listOf("whose", "who's"),
+        listOf("hear", "here"),
+        listOf("write", "right"),
+        listOf("weak", "week"),
+        listOf("break", "brake"),
+        listOf("piece", "peace"),
+        listOf("through", "threw"),
+        listOf("whole", "hole"),
+        listOf("new", "knew"),
+        listOf("know", "no")
+    )
+    private val CONFUSABLES: Map<String, Set<String>> = HashMap<String, Set<String>>().also { m ->
+        for (g in CONFUSABLE_GROUPS) for (w in g) m[w] = g.filter { it != w }.toSet()
+    }
+
+    /**
+     * [word] is a VALID word. If the context says another word is much
+     * more likely there, return that word, else null. [predicted] is the
+     * ordered list of likely next words for the words before it (learned
+     * pairs, n-gram, trigram, bigram). A hint needs ALL of:
+     *   - the typed word is not itself among the top predictions, and
+     *   - a predicted word is either a known mix-up for it (their/there,
+     *     your/you're, its/it's, then/than ...), or one adjacent-key slip
+     *     or transposition away AND more common than the typed word
+     *     (form -> from), and
+     *   - the typed word is not one of the ~150 most common words
+     *     (a known mix-up is exempt from that protection — their/there
+     *     is the whole point of the feature).
+     * Suggest-only: the caller only offers it in the strip.
+     */
+    fun contextualAlternative(word: String, predicted: List<String>): String? {
+        val w = word.lowercase()
+        if (w.length < 2 || predicted.isEmpty()) return null
+        ensureIndex()
+        if (w !in wordSet) return null
+        val top = ArrayList<String>(REAL_WORD_WINDOW)
+        for (p in predicted) {
+            val pl = p.lowercase()
+            if (pl !in top) top.add(pl)
+            if (top.size >= REAL_WORD_WINDOW) break
+        }
+        if (w in top) return null
+        val wRank = wordRank[w] ?: Int.MAX_VALUE
+        val confusables = CONFUSABLES[w] ?: emptySet()
+        val s0 = FloatArray(w.length + 3)
+        val s1 = FloatArray(w.length + 3)
+        val s2 = FloatArray(w.length + 3)
+        for (c in top) {
+            if (c == w) continue
+            if (c in confusables) return c
+            if (c !in wordSet) continue
+            if (wRank < 150 || w.length < 3 || c.length < 3) continue
+            if (abs(c.length - w.length) > 1) continue
+            val cRank = wordRank[c] ?: continue
+            if (cRank >= wRank) continue
+            if (weightedDistance(w, c, 0.6f, s0, s1, s2) <= 0.6f) return c
+        }
+        return null
     }
 
     /** Best swipe match for a traced letter sequence. */

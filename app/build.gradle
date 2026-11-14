@@ -133,8 +133,8 @@ android {
         // Code 38, Oct 30, 2026 (Wilson): tap-typed
         // personal names get their stored casing on
         // Space and Enter (see PressPopIME).
-        versionCode = 46
-        versionName = "0.2.12"
+        versionCode = 47
+        versionName = "0.2.13"
     }
 
     signingConfigs {
@@ -201,6 +201,8 @@ dependencies {
     // the sherpa-onnx 1.12.23 Kotlin AAR (see the
     // verified comment in OfflineVoice.kt).
     implementation(files("libs/sherpa-onnx.aar"))
+    // Code 47: TypingQualityTest needs JUnit (plain JVM tests).
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Code 22, Oct 29, 2026 (Wilson): learned next-word pairs

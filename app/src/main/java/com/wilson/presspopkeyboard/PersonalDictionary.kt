@@ -123,8 +123,10 @@ class PersonalDictionary(private val context: Context) {
             s.manual.removeAll { it.lowercase() == w }
             s.counts.remove(w)
             s.learned.remove(w)
+            s.caps.remove(w)
             s.dirtyManual = true
             s.dirtyCounts = true
+            s.dirtyCaps = true
             s.invalidate()
             s.flushNow()
         }
@@ -156,17 +158,24 @@ class PersonalDictionary(private val context: Context) {
             s.manual.clear()
             s.counts.clear()
             s.learned.clear()
+            s.caps.clear()
             s.bigrams.clear()
             s.dirtyManual = true
             s.dirtyCounts = true
             s.dirtyBigrams = true
+            s.dirtyCaps = true
             s.invalidate()
             s.flushNow()
         }
     }
 
-    /** Record that [word] was committed. Returns true if it just got learned. */
-    fun noteTyped(word: String): Boolean {
+    /**
+     * Record that [word] was committed. Returns true if it just got learned.
+     * [capitalizedMidSentence] is true when the word was typed with a
+     * capital first letter somewhere other than a sentence start, which is
+     * evidence it is a name and should be shown capitalized once learned.
+     */
+    fun noteTyped(word: String, capitalizedMidSentence: Boolean = false): Boolean {
         if (isIncognito()) return false
         val w = word.lowercase()
         if (w.length < 3 || !w.all { it.isLetter() }) return false
@@ -186,6 +195,11 @@ class PersonalDictionary(private val context: Context) {
             val n = (s.counts[w] ?: 0) + 1
             s.counts[w] = n
             s.dirtyCounts = true
+            if (capitalizedMidSentence) {
+                s.caps[w] = (s.caps[w] ?: 0) + 1
+                s.dirtyCaps = true
+                if (w in s.learned) s.invalidate()   // its display casing may change
+            }
             if (n >= LEARN_AT && s.learned.add(w)) s.invalidate()
             s.scheduleFlush()
             return n == LEARN_AT
@@ -202,7 +216,7 @@ class PersonalDictionary(private val context: Context) {
      * rule itself is unchanged: this only makes a deliberate "keep"
      * worth more than a single type.
      */
-    fun noteKept(word: String): Boolean {
+    fun noteKept(word: String, capitalizedMidSentence: Boolean = false): Boolean {
         if (isIncognito()) return false
         val w = word.lowercase()
         if (w.length < 3 || !w.all { it.isLetter() }) return false
@@ -214,6 +228,15 @@ class PersonalDictionary(private val context: Context) {
             val n = before + KEPT_WEIGHT
             s.counts[w] = n
             s.dirtyCounts = true
+            // MAVERICK FIX: a kept word counts KEPT_WEIGHT toward
+            // learning, so its capital evidence counts the same
+            // weight, or the caps/total ratio could never reach a
+            // name learned mostly through keeps.
+            if (capitalizedMidSentence) {
+                s.caps[w] = (s.caps[w] ?: 0) + KEPT_WEIGHT
+                s.dirtyCaps = true
+                if (w in s.learned) s.invalidate()   // its display casing may change
+            }
             if (n >= LEARN_AT && s.learned.add(w)) s.invalidate()
             s.scheduleFlush()
             return before < LEARN_AT && n >= LEARN_AT
@@ -308,6 +331,9 @@ class PersonalDictionary(private val context: Context) {
             val counts = org.json.JSONArray()
             s.counts.map { "${it.key}:${it.value}" }.sorted().forEach { counts.put(it) }
             json.put("counts", counts)
+            val capsArr = org.json.JSONArray()
+            s.caps.map { "${it.key}:${it.value}" }.sorted().forEach { capsArr.put(it) }
+            json.put("caps", capsArr)
             val bigrams = org.json.JSONArray()
             val pairs = ArrayList<String>()
             for ((a, m) in s.bigrams) for ((b, c) in m) pairs.add("$a:$b:$c")
@@ -361,6 +387,18 @@ class PersonalDictionary(private val context: Context) {
                     changed++
                 }
             }
+            val capsArray = json.optJSONArray("caps")
+            if (capsArray != null) {
+                for (i in 0 until capsArray.length()) {
+                    val entry = capsArray.optString(i)
+                    if (!countRe.matches(entry)) continue
+                    val w = entry.substringBefore(":")
+                    val c = entry.substringAfter(":").toIntOrNull() ?: continue
+                    if (c <= (s.caps[w] ?: 0)) continue
+                    s.caps[w] = c
+                    changed++
+                }
+            }
             val bigramsArray = json.optJSONArray("bigrams")
             if (bigramsArray != null) {
                 for (i in 0 until bigramsArray.length()) {
@@ -377,6 +415,7 @@ class PersonalDictionary(private val context: Context) {
             s.dirtyManual = true
             s.dirtyCounts = true
             s.dirtyBigrams = true
+            s.dirtyCaps = true
             s.invalidate()
             s.flushNow()
         }
@@ -407,10 +446,12 @@ class PersonalDictionary(private val context: Context) {
         val counts = HashMap<String, Int>()                      // lowercase word -> times typed
         val bigrams = HashMap<String, HashMap<String, Int>>()    // prev -> (next -> count)
         val learned = HashSet<String>()                          // counts >= LEARN_AT
+        val caps = HashMap<String, Int>()                        // times typed capitalized MID-sentence
 
         var dirtyManual = false
         var dirtyCounts = false
         var dirtyBigrams = false
+        var dirtyCaps = false
 
         private var manualCache: Set<String>? = null
         private var allCache: Set<String>? = null
@@ -428,6 +469,12 @@ class PersonalDictionary(private val context: Context) {
                 if (c > (counts[parts[0]] ?: 0)) counts[parts[0]] = c
             }
             for ((w, c) in counts) if (c >= LEARN_AT) learned.add(w)
+            prefs.getStringSet("caps", null)?.forEach { e ->
+                val parts = e.split(":")
+                if (parts.size != 2) return@forEach
+                val c = parts[1].toIntOrNull() ?: return@forEach
+                if (c > (caps[parts[0]] ?: 0)) caps[parts[0]] = c
+            }
             prefs.getStringSet("bigrams", null)?.forEach { e ->
                 val parts = e.split(":")
                 if (parts.size != 3) return@forEach
@@ -443,8 +490,20 @@ class PersonalDictionary(private val context: Context) {
         fun manualSet(): Set<String> =
             manualCache ?: LinkedHashSet(manual).also { manualCache = it }
 
+        /**
+         * A learned word is stored lowercase; show it capitalized when
+         * the user has mostly typed it with a capital in the MIDDLE of a
+         * sentence (a name like "Guinard"), at least 3 times. A capital
+         * at a sentence start is just auto-shift and never counts.
+         */
+        fun displayCase(w: String): String {
+            val c = caps[w] ?: 0
+            val total = counts[w] ?: 0
+            return if (c >= 3 && c * 2 >= total) w.replaceFirstChar { it.uppercase() } else w
+        }
+
         fun allSet(): Set<String> =
-            allCache ?: LinkedHashSet<String>(manual).apply { addAll(learned) }
+            allCache ?: LinkedHashSet<String>(manual).apply { for (w in learned) add(displayCase(w)) }
                 .also { allCache = it }
 
         fun allLower(): Set<String> =
@@ -464,7 +523,7 @@ class PersonalDictionary(private val context: Context) {
 
         fun flushNow() {
             handler.removeCallbacks(flushTask)
-            if (!(dirtyManual || dirtyCounts || dirtyBigrams)) return
+            if (!(dirtyManual || dirtyCounts || dirtyBigrams || dirtyCaps)) return
             val e = prefs.edit()
             if (dirtyManual) {
                 if (manual.isEmpty()) e.remove("manual") else e.putStringSet("manual", HashSet(manual))
@@ -474,6 +533,11 @@ class PersonalDictionary(private val context: Context) {
                 if (counts.isEmpty()) e.remove("counts")
                 else e.putStringSet("counts", counts.mapTo(HashSet()) { "${it.key}:${it.value}" })
                 dirtyCounts = false
+            }
+            if (dirtyCaps) {
+                if (caps.isEmpty()) e.remove("caps")
+                else e.putStringSet("caps", caps.mapTo(HashSet()) { "${it.key}:${it.value}" })
+                dirtyCaps = false
             }
             if (dirtyBigrams) {
                 if (bigrams.isEmpty()) {
