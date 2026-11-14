@@ -1,5 +1,7 @@
 package com.wilson.presspopkeyboard
 
+import kotlin.math.abs
+import kotlin.math.ln
 import kotlin.math.min
 
 /**
@@ -174,7 +176,7 @@ object Dictionary {
     fun apostropheTwin(word: String): String? {
         val w = word.lowercase()
         if (w.contains('\'')) return null
-        return activeWords.firstOrNull {
+        return wordPool().firstOrNull {
             it.contains('\'') && it.replace("'", "") == w
         }
     }
@@ -230,6 +232,245 @@ object Dictionary {
         "cwo2" to "CWO2", "cwo3" to "CWO3",
         "cwo4" to "CWO4", "cwo5" to "CWO5"
     )
+
+    // Brand names, code 46 (Wilson, Nov 9, 2026): "add
+    // all of the famous brand names to the dictionary
+    // so I don't have to add it manually." Keys are the
+    // lowercase typed form, values are the brand's own
+    // spelling (iPhone, eBay, McDonald's, Coca-Cola).
+    // A brand with a hyphen or apostrophe gets both keys
+    // ("cocacola" and "coca-cola") — the plain key is the
+    // one typing reaches, the punctuated key is what the
+    // strip offers once enough letters are typed.
+    // Two-word brands (Burger King, Best Buy, Home Depot)
+    // are NOT here: each word is already ordinary English,
+    // and a value with a space in it cannot be committed
+    // as one word. Brands that are also ordinary words
+    // (apple, target, ford, delta) ARE listed — they are
+    // recognised and offered as suggestions — but see
+    // brandCasing below: they are never re-cased on their
+    // own, or the fruit would become the company.
+    val BRAND_CASING: Map<String, String> = mapOf(
+        // Tech and internet
+        "apple" to "Apple", "samsung" to "Samsung",
+        "google" to "Google", "microsoft" to "Microsoft",
+        "amazon" to "Amazon", "iphone" to "iPhone",
+        "ipad" to "iPad", "ipod" to "iPod",
+        "imac" to "iMac", "macbook" to "MacBook",
+        "ios" to "iOS", "macos" to "macOS",
+        "ipados" to "iPadOS", "android" to "Android",
+        "windows" to "Windows", "sony" to "Sony",
+        "lg" to "LG", "huawei" to "Huawei",
+        "xiaomi" to "Xiaomi", "oppo" to "OPPO",
+        "vivo" to "Vivo", "oneplus" to "OnePlus",
+        "nokia" to "Nokia", "motorola" to "Motorola",
+        "dell" to "Dell", "hp" to "HP",
+        "lenovo" to "Lenovo", "asus" to "ASUS",
+        "acer" to "Acer", "msi" to "MSI",
+        "intel" to "Intel", "amd" to "AMD",
+        "nvidia" to "NVIDIA", "meta" to "Meta",
+        "facebook" to "Facebook", "instagram" to "Instagram",
+        "whatsapp" to "WhatsApp", "youtube" to "YouTube",
+        "netflix" to "Netflix", "spotify" to "Spotify",
+        "tesla" to "Tesla", "spacex" to "SpaceX",
+        "openai" to "OpenAI", "chatgpt" to "ChatGPT",
+        "grok" to "Grok", "twitter" to "Twitter",
+        "tiktok" to "TikTok", "snapchat" to "Snapchat",
+        "pinterest" to "Pinterest", "linkedin" to "LinkedIn",
+        "reddit" to "Reddit", "twitch" to "Twitch",
+        "discord" to "Discord", "zoom" to "Zoom",
+        "slack" to "Slack", "dropbox" to "Dropbox",
+        "adobe" to "Adobe", "photoshop" to "Photoshop",
+        "canon" to "Canon", "nikon" to "Nikon",
+        "gopro" to "GoPro", "fitbit" to "Fitbit",
+        "garmin" to "Garmin", "roku" to "Roku",
+        "hulu" to "Hulu", "disney" to "Disney",
+        "pixar" to "Pixar", "marvel" to "Marvel",
+        "nintendo" to "Nintendo", "playstation" to "PlayStation",
+        "xbox" to "Xbox", "sega" to "Sega",
+        "atari" to "Atari", "steam" to "Steam",
+        "roblox" to "Roblox", "minecraft" to "Minecraft",
+        "fortnite" to "Fortnite", "ebay" to "eBay",
+        "etsy" to "Etsy", "paypal" to "PayPal",
+        "venmo" to "Venmo", "zelle" to "Zelle",
+        "visa" to "Visa", "mastercard" to "Mastercard",
+        "airbnb" to "Airbnb", "uber" to "Uber",
+        "lyft" to "Lyft", "doordash" to "DoorDash",
+        "grubhub" to "Grubhub", "yelp" to "Yelp",
+        "expedia" to "Expedia", "kayak" to "Kayak",
+        "priceline" to "Priceline", "orbitz" to "Orbitz",
+        "travelocity" to "Travelocity",
+        "hilton" to "Hilton", "marriott" to "Marriott",
+        "hyatt" to "Hyatt", "wyndham" to "Wyndham",
+        "ihg" to "IHG", "verizon" to "Verizon",
+        "att" to "AT&T", "tmobile" to "T-Mobile",
+        "t-mobile" to "T-Mobile", "sprint" to "Sprint",
+        "comcast" to "Comcast", "xfinity" to "Xfinity",
+        "cox" to "Cox", "spectrum" to "Spectrum",
+        "directv" to "DIRECTV", "hbo" to "HBO",
+        "showtime" to "Showtime", "cinemax" to "Cinemax",
+        "paramount" to "Paramount", "peacock" to "Peacock",
+        // Cars
+        "toyota" to "Toyota", "honda" to "Honda",
+        "ford" to "Ford", "chevrolet" to "Chevrolet",
+        "chevy" to "Chevy", "bmw" to "BMW",
+        "mercedes" to "Mercedes", "audi" to "Audi",
+        "volkswagen" to "Volkswagen",
+        "hyundai" to "Hyundai", "kia" to "Kia",
+        "nissan" to "Nissan", "subaru" to "Subaru",
+        "mazda" to "Mazda", "lexus" to "Lexus",
+        "jeep" to "Jeep", "dodge" to "Dodge",
+        "ram" to "Ram", "gmc" to "GMC",
+        "porsche" to "Porsche", "ferrari" to "Ferrari",
+        "lamborghini" to "Lamborghini",
+        "bentley" to "Bentley", "maserati" to "Maserati",
+        "volvo" to "Volvo", "rivian" to "Rivian",
+        "lucid" to "Lucid", "jaguar" to "Jaguar",
+        "mini" to "Mini", "fiat" to "Fiat",
+        "peugeot" to "Peugeot", "renault" to "Renault",
+        "mitsubishi" to "Mitsubishi", "suzuki" to "Suzuki",
+        "infiniti" to "Infiniti", "acura" to "Acura",
+        "genesis" to "Genesis", "cadillac" to "Cadillac",
+        "lincoln" to "Lincoln", "buick" to "Buick",
+        "chrysler" to "Chrysler",
+        "rollsroyce" to "Rolls-Royce",
+        "rolls-royce" to "Rolls-Royce",
+        // Food and drink
+        "cocacola" to "Coca-Cola",
+        "coca-cola" to "Coca-Cola", "pepsi" to "Pepsi",
+        "mcdonalds" to "McDonald's",
+        "mcdonald's" to "McDonald's",
+        "starbucks" to "Starbucks",
+        "wendys" to "Wendy's", "wendy's" to "Wendy's",
+        "kfc" to "KFC", "dominos" to "Domino's",
+        "domino's" to "Domino's", "subway" to "Subway",
+        "nestle" to "Nestle", "kelloggs" to "Kellogg's",
+        "kellogg's" to "Kellogg's", "heinz" to "Heinz",
+        "budweiser" to "Budweiser", "corona" to "Corona",
+        "heineken" to "Heineken", "fanta" to "Fanta",
+        "sprite" to "Sprite", "oreo" to "Oreo",
+        "doritos" to "Doritos", "cheetos" to "Cheetos",
+        "lays" to "Lay's", "lay's" to "Lay's",
+        "pringles" to "Pringles",
+        "snickers" to "Snickers", "twix" to "Twix",
+        "kitkat" to "KitKat", "hershey" to "Hershey",
+        "dunkin" to "Dunkin",
+        "chickfila" to "Chick-fil-A",
+        "chick-fil-a" to "Chick-fil-A",
+        "popeyes" to "Popeyes", "arbys" to "Arby's",
+        "arby's" to "Arby's", "sonic" to "Sonic",
+        "chipotle" to "Chipotle", "panera" to "Panera",
+        "applebees" to "Applebee's",
+        "applebee's" to "Applebee's",
+        "chilis" to "Chili's", "chili's" to "Chili's",
+        "gatorade" to "Gatorade", "powerade" to "Powerade",
+        "monster" to "Monster",
+        // Retail and apparel
+        "walmart" to "Walmart", "costco" to "Costco",
+        "target" to "Target", "lowes" to "Lowe's",
+        "lowe's" to "Lowe's", "ikea" to "IKEA",
+        "nike" to "Nike", "adidas" to "Adidas",
+        "puma" to "Puma", "reebok" to "Reebok",
+        "levis" to "Levi's", "levi's" to "Levi's",
+        "gucci" to "Gucci", "prada" to "Prada",
+        "chanel" to "Chanel", "versace" to "Versace",
+        "rayban" to "Ray-Ban", "ray-ban" to "Ray-Ban",
+        "oakley" to "Oakley", "sephora" to "Sephora",
+        "ulta" to "Ulta", "macys" to "Macy's",
+        "macy's" to "Macy's", "kohls" to "Kohl's",
+        "kohl's" to "Kohl's", "jcpenney" to "JCPenney",
+        "nordstrom" to "Nordstrom", "saks" to "Saks",
+        "walgreens" to "Walgreens", "cvs" to "CVS",
+        "gap" to "Gap", "abercrombie" to "Abercrombie",
+        "hollister" to "Hollister",
+        "aeropostale" to "Aeropostale", "zara" to "Zara",
+        "uniqlo" to "Uniqlo", "vans" to "Vans",
+        "converse" to "Converse",
+        "skechers" to "Skechers",
+        "timberland" to "Timberland",
+        "patagonia" to "Patagonia",
+        "columbia" to "Columbia",
+        // Household
+        "tide" to "Tide", "dove" to "Dove",
+        "colgate" to "Colgate", "crest" to "Crest",
+        "oralb" to "Oral-B", "oral-b" to "Oral-B",
+        "gillette" to "Gillette", "olay" to "Olay",
+        "neutrogena" to "Neutrogena",
+        "loreal" to "L'Oreal", "maybelline" to "Maybelline",
+        "revlon" to "Revlon", "covergirl" to "CoverGirl",
+        "duracell" to "Duracell",
+        "energizer" to "Energizer", "kleenex" to "Kleenex",
+        "scott" to "Scott", "charmin" to "Charmin",
+        "bounty" to "Bounty", "dawn" to "Dawn",
+        "ajax" to "Ajax", "clorox" to "Clorox",
+        "lysol" to "Lysol", "febreze" to "Febreze",
+        "swiffer" to "Swiffer", "pledge" to "Pledge",
+        "windex" to "Windex", "gain" to "Gain",
+        "cheer" to "Cheer", "downy" to "Downy",
+        "bounce" to "Bounce", "snuggle" to "Snuggle",
+        // Airlines
+        "delta" to "Delta", "united" to "United",
+        "southwest" to "Southwest", "jetblue" to "JetBlue",
+        "spirit" to "Spirit", "frontier" to "Frontier",
+        "alaska" to "Alaska", "hawaiian" to "Hawaiian",
+        "lufthansa" to "Lufthansa",
+        "emirates" to "Emirates", "qatar" to "Qatar",
+        "klm" to "KLM", "virgin" to "Virgin",
+        // Media, sports, toys
+        "nfl" to "NFL", "nba" to "NBA", "mlb" to "MLB",
+        "nhl" to "NHL", "fifa" to "FIFA", "uefa" to "UEFA",
+        "espn" to "ESPN", "fox" to "Fox", "cnn" to "CNN",
+        "bbc" to "BBC", "nbc" to "NBC", "abc" to "ABC",
+        "cbs" to "CBS", "pbs" to "PBS", "mtv" to "MTV",
+        "vh1" to "VH1", "nickelodeon" to "Nickelodeon",
+        "lego" to "Lego", "mattel" to "Mattel",
+        "hasbro" to "Hasbro",
+        "fisherprice" to "Fisher-Price",
+        "fisher-price" to "Fisher-Price",
+        "barbie" to "Barbie", "nerf" to "Nerf",
+        "playdoh" to "Play-Doh", "play-doh" to "Play-Doh"
+    )
+
+    /** Every word the keyboard knows: the language
+     * wordlist plus the brand names. Used wherever a
+     * candidate is looked up — suggestions, corrections,
+     * swipe matches — so a brand is never "corrected"
+     * away and can be swiped like any other word.
+     * Cached per active list: `base + keys` builds a
+     * NEW list on every call, so the cached copy is
+     * what ensureIndex checks with === — without it
+     * the index would rebuild on every keystroke. */
+    private var pooledFor: List<String>? = null
+    private var pooledWords: List<String> = emptyList()
+    fun wordPool(): List<String> {
+        val base = activeWords
+        if (pooledFor === base) return pooledWords
+        pooledWords = base + BRAND_CASING.keys
+        pooledFor = base
+        return pooledWords
+    }
+
+    /** The brand spelling for a typed word, or null.
+     * Only for brands that are NOT also ordinary words:
+     * "iphone" becomes "iPhone" on its own, but "apple"
+     * stays "apple" unless the user taps the "Apple"
+     * suggestion — the fruit, the verb, the river
+     * crossing, and the company share one spelling, and
+     * the keyboard must not pick the company for him. */
+    fun brandCasing(word: String): String? {
+        val w = word.lowercase()
+        val cased = BRAND_CASING[w] ?: return null
+        return if (activeWords.contains(w)) null else cased
+    }
+
+    /** Special casing for a typed word: a rank
+     * abbreviation, a brand name, or null when the word
+     * has neither. The one place Space, Enter, swipe,
+     * and suggestion taps ask "does this word have an
+     * official spelling?" instead of each asking the
+     * rank map and forgetting the brands. */
+    fun specialCasing(word: String): String? =
+        RANK_CASING[word.lowercase()] ?: brandCasing(word)
 
     val BIGRAMS: Map<String, List<String>> = mapOf(
         "i" to listOf("am", "have", "think"),
@@ -383,7 +624,118 @@ object Dictionary {
         "people" to listOf("are", "who", "say")
     )
 
-    fun isWord(word: String): Boolean = activeWords.contains(word.lowercase())
+    // ---------- Word index (typing-quality patch) ----------
+    // Built once per pooled word list (active words +
+    // brand names), rebuilt only when the language or
+    // custom pack changes. Replaces linear scans of
+    // the 17k-word list on every keystroke / Space / swipe.
+    private var indexedFor: List<String>? = null
+    private var wordSet: HashSet<String> = HashSet()
+    private var wordRank: HashMap<String, Int> = HashMap() // lowercase word -> rank (0 = most common)
+    private var sortedWords: List<String> = emptyList()    // lowercase, alphabetical
+    private var wordsOrig: List<String> = emptyList()       // swipe candidates, original casing
+    private var wordsLower: List<String> = emptyList()      // same order, lowercase
+
+    @Synchronized
+    private fun ensureIndex() {
+        val list = wordPool() // active words + brand names
+        if (indexedFor === list) return
+        val set = HashSet<String>(list.size * 2)
+        val rank = HashMap<String, Int>(list.size * 2)
+        val orig = ArrayList<String>(list.size)
+        val lower = ArrayList<String>(list.size)
+        for (i in list.indices) {
+            val lw = list[i].lowercase()
+            if (!rank.containsKey(lw)) {
+                rank[lw] = i
+                orig.add(list[i])
+                lower.add(lw)
+            }
+            set.add(lw)
+        }
+        wordSet = set
+        wordRank = rank
+        sortedWords = set.sorted()
+        wordsOrig = orig
+        wordsLower = lower
+        indexedFor = list
+    }
+
+    /** Frequency rank of a LOWERCASE word (0 = most common), or null. */
+    fun rankOf(lowerWord: String): Int? {
+        ensureIndex()
+        return wordRank[lowerWord]
+    }
+
+    /** Swipe candidates: (original-case words, lowercase words), same order
+     *  as the active list, de-duplicated by lowercase. Built once per language. */
+    fun swipeCandidates(): Pair<List<String>, List<String>> {
+        ensureIndex()
+        return wordsOrig to wordsLower
+    }
+
+    // ---------- Keyboard-aware edit cost ----------
+    private val QWERTY_ROWS = arrayOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
+    private val QWERTY_ROW_OFFSET = floatArrayOf(0f, 0.25f, 0.75f)
+    private val KEY_POS: Map<Char, Pair<Float, Float>> = buildMap {
+        for ((r, row) in QWERTY_ROWS.withIndex()) {
+            for ((c, ch) in row.withIndex()) {
+                put(ch, (c + QWERTY_ROW_OFFSET[r]) to r.toFloat())
+            }
+        }
+    }
+
+    /** 0 for the same key, 0.6 for physically adjacent keys, 1.0 otherwise. */
+    private fun subCost(a: Char, b: Char): Float {
+        if (a == b) return 0f
+        val pa = KEY_POS[a] ?: return 1f
+        val pb = KEY_POS[b] ?: return 1f
+        val dx = pa.first - pb.first
+        val dy = pa.second - pb.second
+        return if (dx * dx + dy * dy <= 2.0f) 0.6f else 1f
+    }
+
+    /**
+     * Keyboard-aware Damerau/OSA distance with early exit: returns
+     * Float.MAX_VALUE once every cell in a row exceeds [limit].
+     * Three rolling rows (caller-provided scratch, each at least
+     * b.length + 1 long) instead of a full table per candidate.
+     */
+    private fun weightedDistance(
+        a: String, b: String, limit: Float,
+        s0: FloatArray, s1: FloatArray, s2: FloatArray
+    ): Float {
+        val n = a.length
+        val m = b.length
+        var prev2 = s0
+        var prev = s1
+        var cur = s2
+        for (j in 0..m) prev[j] = j.toFloat()
+        for (i in 1..n) {
+            cur[0] = i.toFloat()
+            var rowMin = cur[0]
+            for (j in 1..m) {
+                var v = minOf(
+                    prev[j] + 1f,
+                    cur[j - 1] + 1f,
+                    prev[j - 1] + subCost(a[i - 1], b[j - 1])
+                )
+                if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) {
+                    v = minOf(v, prev2[j - 2] + 0.6f)
+                }
+                cur[j] = v
+                if (v < rowMin) rowMin = v
+            }
+            if (rowMin > limit) return Float.MAX_VALUE
+            val t = prev2; prev2 = prev; prev = cur; cur = t
+        }
+        return prev[m]
+    }
+
+    fun isWord(word: String): Boolean {
+        ensureIndex()
+        return word.lowercase() in wordSet
+    }
 
     /** Words starting with [prefix], personal words first.
      * Apostrophe forms are offered next, code 21 (Wilson:
@@ -398,23 +750,42 @@ object Dictionary {
      * auto-expansion. */
     fun completions(prefix: String, extra: Collection<String> = emptyList()): List<String> {
         if (prefix.length < 2) return emptyList()
+        ensureIndex()
         val p = prefix.lowercase()
         // Code 37: personal words keep their casing
         // ("Angel"), so compare lowercased, but
         // return the stored form, not a lowered copy.
-        val personalLower = extra.map { it.lowercase() }.toSet()
-        val personal = extra.filter { it.lowercase().startsWith(p) }
-        val apostrophe = activeWords.filter {
-            it.contains('\'') && it.startsWith(p) && it.lowercase() !in personalLower
+        val personalLower = HashSet<String>()
+        val personal = ArrayList<String>()
+        for (e in extra) {
+            val l = e.lowercase()
+            personalLower.add(l)
+            if (l.startsWith(p)) personal.add(e)
         }
-        val common = activeWords.filter {
-            it.startsWith(p) && it.lowercase() !in personalLower && it !in apostrophe
+        // Binary search: first index whose word is >= p.
+        var lo = 0
+        var hi = sortedWords.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (sortedWords[mid] < p) lo = mid + 1 else hi = mid
         }
-        // Code 25: rank suggestions show in their
-        // official casing in the strip (SFC, GySgt),
-        // not in dictionary lowercase.
+        val hits = ArrayList<String>()
+        var i = lo
+        while (i < sortedWords.size && sortedWords[i].startsWith(p)) {
+            val w = sortedWords[i]
+            if (w !in personalLower) hits.add(w)
+            i++
+        }
+        hits.sortBy { wordRank[it] ?: Int.MAX_VALUE }
+        val (apostrophe, common) = hits.partition { it.contains('\'') }
+        // Code 25/46: rank and brand suggestions show
+        // in their official casing in the strip (SFC,
+        // GySgt, iPhone), not in dictionary lowercase.
+        // A brand that is also an ordinary word (apple)
+        // is offered as "Apple" here — a tap choice —
+        // but Space never forces it (see brandCasing).
         return (personal + apostrophe + common).distinct().take(5)
-            .map { RANK_CASING[it.lowercase()] ?: it }
+            .map { RANK_CASING[it.lowercase()] ?: BRAND_CASING[it.lowercase()] ?: it }
     }
 
     /**
@@ -504,36 +875,63 @@ object Dictionary {
         return dp[a.length][b.length]
     }
 
-    /** Closest dictionary word to [word], or null if nothing is close. */
+    /**
+     * Best correction for [word], or null if it is already a word or
+     * nothing is close. Candidates are ranked by keyboard-aware edit
+     * cost (adjacent-key slips and transpositions 0.6, others 1.0)
+     * plus a frequency penalty of at most 0.5, so frequency only
+     * breaks ties inside one edit-cost step: a distance-2 word never
+     * beats a distance-1 word. Personal words get a small bonus.
+     */
     fun bestCorrection(word: String, extra: Collection<String> = emptyList()): String? {
         val w = word.lowercase()
         if (w.length < 3) return null
         if (w.any { it.code > 127 }) return null // accented word: do not "correct" it away
-        val maxDist = if (w.length <= 4) 1 else 2
+        ensureIndex()
+        if (w in wordSet) return null // already a real word: do not "correct" it
+        if (extra.any { it.lowercase() == w }) return null // already a personal word
+
+        val limit = if (w.length <= 4) 1f else 2f
+        val maxLenGap = limit.toInt()
+        val rankScale = ln(1f + wordSet.size)
+        val cap = w.length + maxLenGap + 2
+        val s0 = FloatArray(cap)
+        val s1 = FloatArray(cap)
+        val s2 = FloatArray(cap)
+
         var best: String? = null
-        var bestDist = Int.MAX_VALUE
-        for (cand in extra + activeWords) {
-            if (cand.lowercase() == w) return null // already a real word: do not "correct" it
-            if (kotlin.math.abs(cand.length - w.length) > maxDist) continue
-            val d = levenshtein(w, cand.lowercase())
-            if (d < bestDist) {
-                bestDist = d
+        var bestScore = Float.MAX_VALUE
+        fun consider(cand: String, rank: Int?, isPersonal: Boolean) {
+            val cl = cand.lowercase()
+            if (abs(cl.length - w.length) > maxLenGap) return
+            val dist = weightedDistance(w, cl, limit, s0, s1, s2)
+            if (dist > limit) return
+            val freqPenalty = if (rank == null) 0.5f else 0.5f * ln(1f + rank) / rankScale
+            val score = dist + freqPenalty - (if (isPersonal) 0.2f else 0f)
+            if (score < bestScore) {
+                bestScore = score
                 best = cand
             }
         }
-        return if (bestDist <= maxDist) best else null
+        for (e in extra) consider(e, null, true)
+        for (i in wordsOrig.indices) {
+            val lw = wordsLower[i]
+            if (abs(lw.length - w.length) > maxLenGap) continue
+            consider(wordsOrig[i], i, false)
+        }
+        return best
     }
 
     /** Best swipe match for a traced letter sequence. */
     fun bestSwipeMatch(traced: String, extra: Collection<String> = emptyList()): String? {
         val t = traced.lowercase()
         if (t.length < 3) return null
-        if (t in activeWords) return t
+        if (t in wordPool()) return t
         val extraMatch = extra.firstOrNull { it.lowercase() == t }
         if (extraMatch != null) return extraMatch
         var best: String? = null
         var bestDist = Int.MAX_VALUE
-        for (cand in extra + activeWords) {
+        for (cand in extra + wordPool()) {
             val cl = cand.lowercase()
             if (cl.first() != t.first() || cl.last() != t.last()) continue
             val d = levenshtein(t, cl)
@@ -563,7 +961,7 @@ object Dictionary {
         // where a swipe starts is the most reliable part of it.
         var subBest: String? = null
         var subBestSpan = Int.MAX_VALUE
-        for (candOrig in extra + activeWords) {
+        for (candOrig in extra + wordPool()) {
             val cand = candOrig.lowercase()
             if (cand.length < 3 || cand.first() != t.first()) continue
             var ti = 0

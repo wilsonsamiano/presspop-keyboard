@@ -1056,16 +1056,16 @@ class KeyboardView @JvmOverloads constructor(
             }
             flushRun()
         }
-        // Frequency rank map, built once per swipe.
-        val activeList = Dictionary.activeWords
-        val freqRank = HashMap<String, Int>(activeList.size * 2)
-        for (i in activeList.indices) {
-            if (!freqRank.containsKey(activeList[i])) freqRank[activeList[i]] = i
-        }
+        // Frequency ranks and lowercase candidates come from
+        // Dictionary's per-language index, built once, not
+        // rebuilt on every swipe.
+        val (dictWords, dictLower) = Dictionary.swipeCandidates()
         // Code 37: personal words keep their casing
         // ("Angel"), so compare lowercased here;
         // the scored word itself keeps its form.
         val personalSet = personalWords.map { it.lowercase() }.toSet()
+        val personalList = personalWords.distinctBy { it.lowercase() }
+        val personalLowerList = personalList.map { it.lowercase() }
         val prev = previousWord.lowercase()
         val bigramNext = if (prev.isNotEmpty()) Dictionary.BIGRAMS[prev] ?: emptyList() else emptyList()
         data class Scored(val word: String, val geometry: Float, val rescore: Float)
@@ -1073,9 +1073,25 @@ class KeyboardView @JvmOverloads constructor(
             val out = mutableListOf<Scored>()
             // Personal first, deduped by lowercase, so
             // "Angel" wins over a duplicate "angel".
-            val candidates = (personalWords + Dictionary.activeWords).distinctBy { it.lowercase() }
-                .filter { allowedStarts == null || it.isNotEmpty() && it.lowercase()[0].toString() in allowedStarts }
-            for (cand in candidates) {
+            // Personal words first (stored casing), then the
+            // dictionary words that are not personal. No per-swipe
+            // lowercasing of the whole word list.
+            val nPersonal = personalList.size
+            for (idx in 0 until nPersonal + dictWords.size) {
+                val cand: String
+                val lower: String
+                if (idx < nPersonal) {
+                    cand = personalList[idx]
+                    lower = personalLowerList[idx]
+                } else {
+                    val k = idx - nPersonal
+                    lower = dictLower[k]
+                    if (lower in personalSet) continue
+                    cand = dictWords[k]
+                }
+                if (allowedStarts != null &&
+                    (lower.isEmpty() || lower[0].toString() !in allowedStarts)
+                ) continue
                 if (cand.length < 2) continue
                 val path = mutableListOf<PointF>()
                 var ok = true
@@ -1087,7 +1103,7 @@ class KeyboardView @JvmOverloads constructor(
                 // exactly the trace a user swipes,
                 // and can compete with "well" on
                 // geometry, frequency, and bigram.
-                for (c in cand.lowercase()) {
+                for (c in lower) {
                     if (!c.isLetter()) continue
                     val center = centers[c.toString()]
                     if (center == null) { ok = false; break }
@@ -1114,13 +1130,13 @@ class KeyboardView @JvmOverloads constructor(
                 val orderedScore = orderedSum / actual.size
                 val geometry = chamferScore(actual, path) * chamferWeight + orderedScore * orderedWeight
                 var rescore = geometry
-                if (cand.lowercase() in personalSet) rescore -= keyW * 0.30f
-                val rank = freqRank[cand.lowercase()]
+                if (lower in personalSet) rescore -= keyW * 0.30f
+                val rank = Dictionary.rankOf(lower)
                 if (rank != null && rank < 500) rescore -= keyW * 0.25f
                 else if (rank != null && rank < 4000) rescore -= keyW * 0.12f
-                if (cand.lowercase() in bigramNext) rescore -= keyW * 0.30f
+                if (lower in bigramNext) rescore -= keyW * 0.30f
                 for (dl in dwelled) {
-                    if (cand.lowercase().contains(dl + dl)) { rescore -= keyW * 0.25f; break }
+                    if (lower.contains(dl + dl)) { rescore -= keyW * 0.25f; break }
                 }
                 out.add(Scored(cand, geometry, rescore))
             }

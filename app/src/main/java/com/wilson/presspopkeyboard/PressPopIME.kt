@@ -808,16 +808,16 @@ class PressPopIME : InputMethodService() {
                                     lastCorrected = enterWord to enterPronounI
                                 } else if (true) {
                                 val enterContraction = Dictionary.CONTRACTIONS[enterWord.lowercase()]
-                                val enterRank = Dictionary.RANK_CASING[enterWord.lowercase()]
+                                val enterCased = Dictionary.specialCasing(enterWord.lowercase())
                                 // Code 38: same personal-casing gap
                                 // as Space — a tap-typed name kept
                                 // its typed lowercase on Enter too.
                                 val enterPersonalCased = personal.allPersonalWords()
                                     .firstOrNull { it.lowercase() == enterWord.lowercase() && it != enterWord }
-                                if (enterWholeWord && enterRank != null && enterWord != enterRank) {
+                                if (enterWholeWord && enterCased != null && enterWord != enterCased) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
-                                    ic.commitText(enterRank, 1)
-                                    recordCommittedWord(enterRank)
+                                    ic.commitText(enterCased, 1)
+                                    recordCommittedWord(enterCased)
                                 } else if (enterWholeWord && enterPersonalCased != null) {
                                     ic.deleteSurroundingText(enterWord.length, 0)
                                     ic.commitText(enterPersonalCased, 1)
@@ -852,18 +852,18 @@ class PressPopIME : InputMethodService() {
                                         // fix stays: the suggestion
                                         // keeps a sentence-start
                                         // capital, like Space.
-                                        val enterSuggestion = Dictionary.RANK_CASING[enterCorrection.lowercase()]
+                                        val enterSuggestion = Dictionary.specialCasing(enterCorrection.lowercase())
                                             ?: capitalizeForSentenceStart(enterCorrection, enterCheckWord.length)
                                         pendingCorrection = enterCheckWord to enterSuggestion
                                         if (::strip.isInitialized) showSuggestionPopup(strip, enterSuggestion)
-                                        personal.noteTyped(enterWord)
+                                        personal.noteTyped(enterCheckWord)
                                         recordCommittedWord(enterWord)
                                     } else {
-                                        personal.noteTyped(enterWord)
+                                        personal.noteTyped(enterCheckWord)
                                         recordCommittedWord(enterWord)
                                     }
                                 } else {
-                                    personal.noteTyped(enterWord)
+                                    personal.noteTyped(enterCheckWord)
                                     recordCommittedWord(enterWord)
                                 }
                                 keyboardView.setTypedWord("")
@@ -907,7 +907,7 @@ class PressPopIME : InputMethodService() {
             // "dont" becomes "don't", always lowercase.
             val swipedBase = Dictionary.CONTRACTIONS[word.lowercase()] ?: word
             val swipedWord = capitalizePronounI(swipedBase)
-                ?: Dictionary.RANK_CASING[swipedBase.lowercase()] ?: swipedBase
+                ?: Dictionary.specialCasing(swipedBase.lowercase()) ?: swipedBase
             val committedForm = capitalizeForSentenceStart(swipedWord, 0)
             val text = committedForm +
                 if (isPassword) "" else " "
@@ -1384,13 +1384,6 @@ class PressPopIME : InputMethodService() {
         }
     }
 
-    // Rank casing, code 25: return the official
-    // abbreviation for a rank, or [word] unchanged.
-    // Applied before sentence-start capitalization, so
-    // a rank never becomes Sfc / Lcpl by accident.
-    private fun caseRank(word: String): String =
-        Dictionary.RANK_CASING[word.lowercase()] ?: word
-
     // Code 39 parity (Wilson, Nov 3, 2026): lazy auto-space after
     // punctuation, shared by tap letters, swiped words, and
     // next-word taps. True when the character right before the
@@ -1615,24 +1608,24 @@ class PressPopIME : InputMethodService() {
             // become "don't". Always lowercase, never
             // capitalized, per Wilson's "dont put caps".
             val contraction = Dictionary.CONTRACTIONS[word.lowercase()]
-            val rankCased = Dictionary.RANK_CASING[word.lowercase()]
+            val specialCased = Dictionary.specialCasing(word.lowercase())
             // Code 38 (Wilson, Oct 30, 2026): the stored
             // casing of a personal word, if it differs
             // from what was typed (e.g. "Angel" vs
             // typed "angel"). See the branch below.
             val personalCased = personal.allPersonalWords()
                 .firstOrNull { it.lowercase() == word.lowercase() && it != word }
-            if (wholeWord && rankCased != null && word != rankCased) {
-                // Code 25: a typed rank comes out in its
-                // official casing on Space — Army all caps
-                // (sfc -> SFC), other branches as listed in
-                // Dictionary.RANK_CASING (gysgt -> GySgt).
+            if (wholeWord && specialCased != null && word != specialCased) {
+                // Code 25/46: a typed rank — or a brand
+                // that is not an ordinary word — comes out
+                // in its official casing on Space (sfc ->
+                // SFC, gysgt -> GySgt, iphone -> iPhone).
                 // Not an autocorrection, so lastCorrected
                 // is NOT set: backspace after a rank deletes
                 // normally, it does not "undo" the casing.
                 ic.deleteSurroundingText(word.length, 0)
-                ic.commitText(rankCased, 1)
-                committedWordThisSpace = rankCased
+                ic.commitText(specialCased, 1)
+                committedWordThisSpace = specialCased
             } else if (wholeWord && personalCased != null) {
                 // Code 38: tap-typed personal names did
                 // NOT get their stored casing on Space.
@@ -1694,7 +1687,7 @@ class PressPopIME : InputMethodService() {
                 val correction = Dictionary.bestCorrection(checkWord, personal.allPersonalWords())
                 if (correction != null) {
                     val suggestion =
-                        Dictionary.RANK_CASING[correction.lowercase()]
+                        Dictionary.specialCasing(correction.lowercase())
                             ?: capitalizeForSentenceStart(correction, checkWord.length)
                     showDebug("Suggestion: '$checkWord' -> '$suggestion' (not replaced)")
                     pendingCorrection = checkWord to suggestion
@@ -1703,14 +1696,14 @@ class PressPopIME : InputMethodService() {
                     // counts toward learning like any other
                     // typed word — the old code skipped this
                     // because the typo was replaced, not kept.
-                    personal.noteTyped(word)
+                    personal.noteTyped(checkWord)
                 } else {
                     showDebug("Suggestion: '$checkWord' -> no correction (left as typed)")
-                    personal.noteTyped(word)
+                    personal.noteTyped(checkWord)
                 }
             } else {
                 showDebug("Suggestion: '$checkWord' left alone (known/personal word)")
-                personal.noteTyped(word)
+                personal.noteTyped(checkWord)
             }
             keyboardView.personalWords = personal.allPersonalWords()
             } // end pronoun-I else block
@@ -1733,7 +1726,9 @@ class PressPopIME : InputMethodService() {
         if (isPasswordField()) return
         val word = keyboardView.typedWord
         if (word.isNotEmpty()) {
-            personal.noteTyped(word)
+            // Count the whole word in the field, not just the typed
+            // tail left after a backspace-and-retype fix.
+            personal.noteTyped(fieldWordBeforeCursor() ?: word)
             keyboardView.personalWords = personal.allPersonalWords()
         }
     }
@@ -1817,9 +1812,17 @@ class PressPopIME : InputMethodService() {
                     .distinct().take(2)
             } else emptyList()
         } else emptyList()
-        val completions = if (word.length >= 2) {
+        val baseCompletions = if (word.length >= 2) {
             Dictionary.completions(word, personalWords)
         } else emptyList()
+        // Mid-word fix: when few prefix completions exist, offer
+        // the best correction too, so a typo like "helo" can be
+        // fixed from the strip before Space. Tapping it replaces
+        // the whole field word (see onSuggestionTapped).
+        val midWordFix = if (word.length >= 3 && baseCompletions.size < 2) {
+            Dictionary.bestCorrection(word, personalWords)
+        } else null
+        val completions = (baseCompletions + listOfNotNull(midWordFix)).distinct()
         val corrected = lastCorrected
         // Code 37: a stale swipe alternative clears
         // as soon as a new word starts being typed,
@@ -2095,6 +2098,12 @@ class PressPopIME : InputMethodService() {
         if (pending != null && keyboardView.typedWord.isEmpty()) {
             if (index == 0 && suggestion == pending.first) {
                 pendingCorrection = null
+                // Tapping the word as typed is an explicit "keep my
+                // word": count it as several types so a name or
+                // slang word the keyboard keeps flagging is learned
+                // sooner than 77 plain types.
+                personal.noteKept(pending.first)
+                keyboardView.personalWords = personal.allPersonalWords()
                 refreshSuggestions("")
                 return
             }
@@ -2138,7 +2147,7 @@ class PressPopIME : InputMethodService() {
             // typed, the suggestion goes away.
             pendingCorrection = null
             val nextWord = capitalizePronounI(suggestion)
-                ?: Dictionary.RANK_CASING[suggestion.lowercase()]
+                ?: Dictionary.specialCasing(suggestion.lowercase())
                 ?: capitalizeForSentenceStart(suggestion, 0)
             // Code 39 parity: a next-word tap right after a
             // mark gets the same lazy space before it, so
@@ -2168,7 +2177,7 @@ class PressPopIME : InputMethodService() {
         val fieldWordForTap = fieldWordBeforeCursor() ?: word
         // Capitalize before deleting, for the same reason as above.
         val finalSuggestion = capitalizePronounI(expandedSuggestion)
-            ?: Dictionary.RANK_CASING[expandedSuggestion.lowercase()]
+            ?: Dictionary.specialCasing(expandedSuggestion.lowercase())
             ?: capitalizeForSentenceStart(expandedSuggestion, fieldWordForTap.length)
         if (word.isNotEmpty()) {
             ic.deleteSurroundingText(fieldWordForTap.length, 0)
@@ -2363,6 +2372,10 @@ class PressPopIME : InputMethodService() {
 
     override fun onFinishInput() {
         super.onFinishInput()
+        // Write any learned words / pairs still waiting in
+        // memory (PersonalDictionary saves a few seconds after
+        // the last change, and right now when a field closes).
+        if (::personal.isInitialized) personal.flush()
         // Never leave one field's autofill suggestions
         // showing in the next field/app.
         clearAutofillRow()
@@ -2373,6 +2386,11 @@ class PressPopIME : InputMethodService() {
     // tablet flips light/dark in quick settings),
     // re-read the theme and repaint at once —
     // do not wait for a new field to start.
+    override fun onDestroy() {
+        if (::personal.isInitialized) personal.flush()
+        super.onDestroy()
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (::keyboardView.isInitialized) {
