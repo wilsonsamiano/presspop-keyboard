@@ -15,6 +15,11 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.graphics.Typeface
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -424,6 +429,114 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(
                 this,
                 if (on) "Key sounds on." else "Key sounds off.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        // Code 49 (Wilson, Nov 18, 2026): autocorrect mode.
+        // Off (default) = suggest only: the word stays as typed and
+        // the fix waits in the strip; tapping it applies it, and
+        // the typed word stays one tap (or Backspace) away.
+        // On = auto-replace on Space / Enter, with the typed word
+        // in the left slot and on Backspace to undo. Applies from
+        // the next word typed, no restart needed.
+        val autocorrectButton = findViewById<Button>(R.id.autocorrectButton)
+        fun refreshAutocorrectLabel() {
+            val on = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+                .getBoolean("autocorrect_auto", false)
+            autocorrectButton.text = if (on) {
+                "Autocorrect: Auto-replace (tap for suggest only)"
+            } else {
+                "Autocorrect: Suggest only (tap to auto-replace)"
+            }
+        }
+        refreshAutocorrectLabel()
+        autocorrectButton.setOnClickListener {
+            val prefs = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+            val on = !prefs.getBoolean("autocorrect_auto", false)
+            prefs.edit().putBoolean("autocorrect_auto", on).apply()
+            refreshAutocorrectLabel()
+            Toast.makeText(
+                this,
+                if (on) "Autocorrect will replace typos. Tap the typed word or Backspace to undo."
+                else "Autocorrect will only suggest. Tap a suggestion to apply it.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        // Code 51 (Wilson, Nov 20, 2026): keyboard color themes.
+        // A list of every theme, each with a row of swatches
+        // (background, key, action key, accent) so the colors can
+        // be compared before picking. The keyboard picks the new
+        // theme up the next time it opens.
+        val colorsButton = findViewById<Button>(R.id.keyboardColorsButton)
+        fun refreshColorsLabel() {
+            val id = KeyboardTheme.currentId(settings)
+            colorsButton.text = "Keyboard colors: ${KeyboardTheme.label(id)} (tap to change)"
+        }
+        refreshColorsLabel()
+        colorsButton.setOnClickListener {
+            val choices = KeyboardTheme.CHOICES
+            val currentId = KeyboardTheme.currentId(settings)
+            val items = choices.map { (id, label) ->
+                val pal = KeyboardTheme.previewPalette(id)
+                val sb = SpannableStringBuilder()
+                for (swatch in listOf(pal.background, pal.keyTop, pal.actionTop, pal.accentTop)) {
+                    val start = sb.length
+                    sb.append("\u25A0")
+                    sb.setSpan(ForegroundColorSpan(swatch), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                sb.append("  ")
+                val start = sb.length
+                sb.append(label)
+                if (id == currentId) {
+                    sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                sb as CharSequence
+            }.toTypedArray()
+            val checked = choices.indexOfFirst { it.first == currentId }.coerceAtLeast(0)
+            AlertDialog.Builder(this)
+                .setTitle("Keyboard colors")
+                .setSingleChoiceItems(items, checked) { dialog, which ->
+                    val id = choices[which].first
+                    settings.edit().putString(KeyboardTheme.PREF, id).apply()
+                    refreshColorsLabel()
+                    dialog.dismiss()
+                    Toast.makeText(
+                        this,
+                        "${KeyboardTheme.label(id)} colors. The keyboard picks them up next time it opens.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        // Code 50 (Wilson, Nov 18, 2026): predictive touch. On by
+        // default. A tap in the centre of a key always types that
+        // key; only edge and gap taps use the word being typed to
+        // pick the likelier key. Applies the next time a text field
+        // opens.
+        val predictiveTouchButton = findViewById<Button>(R.id.predictiveTouchButton)
+        fun refreshPredictiveTouchLabel() {
+            val on = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+                .getBoolean("predictive_touch", true)
+            predictiveTouchButton.text = if (on) {
+                "Predictive touch: On (tap to turn off)"
+            } else {
+                "Predictive touch: Off (tap to turn on)"
+            }
+        }
+        refreshPredictiveTouchLabel()
+        predictiveTouchButton.setOnClickListener {
+            val prefs = getSharedPreferences("presspop_settings", MODE_PRIVATE)
+            val on = !prefs.getBoolean("predictive_touch", true)
+            prefs.edit().putBoolean("predictive_touch", on).apply()
+            refreshPredictiveTouchLabel()
+            Toast.makeText(
+                this,
+                if (on) "Predictive touch on: edge taps follow the word you are typing."
+                else "Predictive touch off: every tap types the nearest key.",
                 Toast.LENGTH_SHORT
             ).show()
         }

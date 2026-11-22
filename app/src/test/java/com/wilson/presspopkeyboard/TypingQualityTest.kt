@@ -123,4 +123,33 @@ class TypingQualityTest {
         assertNotNull(withContext)
         assertEquals("beach", withContext)
     }
+
+    // ---------- Code 50 ----------
+
+    @Test
+    fun spaceSlipsSplitIntoTwoWords() {
+        assertEquals("the cat", Dictionary.spaceSlipSplit("thebcat"))
+        assertEquals("if you", Dictionary.spaceSlipSplit("ifnyou"))
+        assertEquals("in the", Dictionary.spaceSlipSplit("inthe"))
+        assertEquals("and the", Dictionary.spaceSlipSplit("andvthe"))
+        // Real words and names are never split.
+        assertNull(Dictionary.spaceSlipSplit("cabin"))
+        assertNull(Dictionary.spaceSlipSplit("guinard"))
+    }
+
+    @Test
+    fun nextKeyPriorFavoursSpaceAfterAWholeWord() {
+        val afterThe = Dictionary.nextKeyPrior("the")!!
+        val space = afterThe[' '] ?: 0f
+        assertTrue("space should beat b after 'the'", space > (afterThe['b'] ?: 0f))
+        assertTrue("space should beat v after 'the'", space > (afterThe['v'] ?: 0f))
+        val afterA = Dictionary.nextKeyPrior("a")!!
+        assertTrue("n should beat j after 'a'", (afterA['n'] ?: 0f) > (afterA['j'] ?: 0f))
+        assertNull("off-dictionary prefix gives no prior", Dictionary.nextKeyPrior("xqz"))
+    }
+
+    @Test
+    fun commonTypoTgeBecomesThe() {
+        assertEquals("the", Dictionary.bestCorrection("tge"))
+    }
 }

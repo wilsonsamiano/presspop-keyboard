@@ -820,6 +820,10 @@ object Dictionary {
      * whole sentence, and it has no part-of-speech
      * tagging beyond the pairs listed here.
      */
+    /** Code 48: offered in the strip at the start of a field or
+     *  sentence (English only), where no previous word exists. */
+    val SENTENCE_STARTERS: List<String> = listOf("I", "The", "Thanks", "Hey", "Can", "What")
+
     val TRIGRAMS: Map<String, List<String>> = mapOf(
         "thank you" to listOf("for", "so", "much"),
         "how are" to listOf("you", "things", "we"),
@@ -947,6 +951,111 @@ object Dictionary {
             consider(wordsOrig[i], i, false)
         }
         return best
+    }
+
+    // ---------- Predictive touch (code 50) ----------
+    private var priorPrefix: String? = null
+    private var priorList: List<String>? = null
+    private var priorResult: Map<Char, Float>? = null
+
+    /**
+     * Code 50 (Wilson, Nov 18, 2026): how likely each next key is,
+     * given the letters already typed in this word. Keys are the
+     * lowercase letters, plus ' ' for the space bar (the typed letters
+     * already make a whole word). Each dictionary word that starts
+     * with [prefix] votes for its next letter, weighted by how common
+     * the word is (rank r votes 1 / (r + 20)). Null when nothing in
+     * the dictionary starts with [prefix] — the word is already off
+     * the dictionary, so there is nothing sensible to predict and the
+     * keyboard falls back to plain nearest-key.
+     */
+    fun nextKeyPrior(prefix: String): Map<Char, Float>? {
+        val p = prefix.lowercase()
+        if (p.isEmpty()) return null
+        ensureIndex()
+        if (p == priorPrefix && priorList === indexedFor) return priorResult
+        var lo = 0
+        var hi = sortedWords.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (sortedWords[mid] < p) lo = mid + 1 else hi = mid
+        }
+        val votes = HashMap<Char, Float>()
+        var total = 0f
+        var i = lo
+        while (i < sortedWords.size && sortedWords[i].startsWith(p)) {
+            val w = sortedWords[i]
+            val weight = 1f / ((wordRank[w] ?: 20_000) + 20f)
+            val next = if (w.length == p.length) ' ' else w[p.length]
+            if (next == ' ' || next in 'a'..'z') {
+                votes[next] = (votes[next] ?: 0f) + weight
+                total += weight
+            }
+            i++
+        }
+        val result = if (total <= 0f) null else votes.mapValues { it.value / total }
+        priorPrefix = p
+        priorList = indexedFor
+        priorResult = result
+        return result
+    }
+
+    // ---------- Space-bar slips (code 50) ----------
+    // Keys that sit right above the space bar: hitting one of these
+    // instead of Space glues two words together ("thebcat").
+    private const val ABOVE_SPACE = "xcvbnm"
+
+    /**
+     * Code 50: [word] is NOT a word. If it is two common words glued
+     * together, either by a key above the space bar hit instead of
+     * Space ("thebcat" -> "the cat", "ifnyou" -> "if you") or by a
+     * missed Space ("inthe" -> "in the"), return "left right", else
+     * null. Both halves must be among the 8,000 most common words
+     * ("a" and "i" are the only one-letter halves allowed). The most
+     * common pair wins.
+     */
+    fun spaceSlipSplit(word: String): String? {
+        val w = word.lowercase()
+        if (w.length < 3 || !w.all { it in 'a'..'z' }) return null
+        ensureIndex()
+        if (w in wordSet) return null
+        fun okPart(s: String): Int? {
+            if (s.isEmpty()) return null
+            if (s.length == 1 && s != "a" && s != "i") return null
+            val r = wordRank[s] ?: return null
+            return if (r < 8000) r else null
+        }
+        var best: String? = null
+        var bestScore = Float.MAX_VALUE
+        for (cut in 1 until w.length) {
+            // Missed Space: split between cut-1 and cut.
+            val l0 = w.substring(0, cut)
+            val r0 = w.substring(cut)
+            val a0 = okPart(l0)
+            val b0 = okPart(r0)
+            if (a0 != null && b0 != null) {
+                val s = ln(1f + a0) + ln(1f + b0) + 0.5f
+                if (s < bestScore) { bestScore = s; best = "$l0 $r0" }
+            }
+            // Slip: the letter at `cut` was meant to be Space.
+            if (cut < w.length - 1 && w[cut] in ABOVE_SPACE) {
+                val l1 = w.substring(0, cut)
+                val r1 = w.substring(cut + 1)
+                val a1 = okPart(l1)
+                val b1 = okPart(r1)
+                if (a1 != null && b1 != null) {
+                    val s = ln(1f + a1) + ln(1f + b1)
+                    if (s < bestScore) { bestScore = s; best = "$l1 $r1" }
+                }
+            }
+        }
+        return best
+    }
+
+    /** Code 50: true if both words of a split are in the top 2,000. */
+    fun isCommonSplit(split: String): Boolean {
+        ensureIndex()
+        return split.split(' ').all { (wordRank[it] ?: Int.MAX_VALUE) < 2000 }
     }
 
     // ---------- Real-word typo hints (suggest-only) ----------

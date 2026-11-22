@@ -92,6 +92,9 @@ Every key, not just letters:
   pad: 1-2-3 / 4-5-6 / 7-8-9 / * 0 #, plus ABC, space, delete and
   enter on the bottom row. For dialling, PINs, amounts, or any time
   a full keyboard is in the way. Tap 123 or ABC to go back.
+  Number, PIN and phone fields open it automatically, as a compact
+  pad centered on the keyboard (at most 360dp wide) rather than
+  stretched across the whole screen.
 
 ## Features added in v5
 

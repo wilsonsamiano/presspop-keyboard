@@ -69,6 +69,12 @@
         android:text="Theme: Light (tap for Dark)" />
 
     <Button
+        android:id="@+id/keyboardColorsButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Keyboard colors: Classic (tap to change)" />
+
+    <Button
         android:id="@+id/micButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -323,6 +329,28 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Key sounds: On (tap to turn off)" />
+
+    <Button
+        android:id="@+id/autocorrectButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Autocorrect: Suggest only (tap to auto-replace)" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Suggest only: a typo stays as typed and the fix waits in the strip; tap it to apply. Auto-replace: the fix goes in when you press Space or Enter. Either way, tap the word on the left of the strip, or press Backspace right away, to undo." />
+
+    <Button
+        android:id="@+id/predictiveTouchButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Predictive touch: On (tap to turn off)" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="A tap in the centre of a key always types that key. A tap near a key's edge or between keys types the key that fits the word you are typing, such as Space instead of B right after a whole word." />
 
     <Button
         android:id="@+id/incognitoButton"

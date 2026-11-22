@@ -133,8 +133,27 @@ android {
         // Code 38, Oct 30, 2026 (Wilson): tap-typed
         // personal names get their stored casing on
         // Space and Enter (see PressPopIME).
-        versionCode = 47
-        versionName = "0.2.13"
+        // Code 48, Nov 18, 2026 (Wilson): next-word
+        // predictions after one or two words (n-gram
+        // backoff) and sentence openers, a compact
+        // centered PIN / number pad, and swipe
+        // runner-up words offered as a one-tap swap.
+        // Code 49, Nov 18, 2026 (Wilson): autocorrect
+        // mode setting (suggest only / auto-replace),
+        // undo in both modes, and the whole word is
+        // tracked when fixing a word by backspacing
+        // into it, not just the retyped letters.
+        // Code 50, Nov 18, 2026 (Wilson): auto-shift turns
+        // itself back off when editing, predictive touch with
+        // a protected key centre, space-bar slip splitting
+        // ("thebcat" -> "the cat"), and swiping down from a
+        // letter (I'm) no longer types the flick symbol.
+        // Code 51, Nov 20, 2026 (Wilson): 15 keyboard
+        // color themes (14 to pick from, Classic follows
+        // Light / Dark / System), every one contrast-
+        // checked so keys stand out from the background.
+        versionCode = 51
+        versionName = "0.2.17"
     }
 
     signingConfigs {

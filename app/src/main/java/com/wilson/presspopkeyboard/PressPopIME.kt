@@ -114,6 +114,35 @@ class PressPopIME : InputMethodService() {
 
     private var lastSpaceTap = 0L
     private var lastCorrected: Pair<String, String>? = null // (typed, correction)
+    // Code 49: true when lastCorrected was made AUTOMATICALLY
+    // (auto-replace or a contraction), so undoing it means "keep
+    // my word" and the word is learned. False when the user tapped
+    // the suggestion themselves: undoing that is just changing
+    // their mind, so nothing is learned.
+    private var lastCorrectedLearns: Boolean = true
+
+    // Code 49 (Wilson, Nov 18, 2026): autocorrect mode, set in the
+    // app. Off (default) = suggest only, the code 44 behaviour:
+    // the word stays as typed and the fix waits in the strip.
+    // On = auto-replace on Space / Enter, with the typed word in
+    // the left slot and on Backspace to undo. Read live, so a
+    // change in the app applies on the next word.
+    private fun autoReplaceOn(): Boolean =
+        getSharedPreferences("presspop_settings", MODE_PRIVATE)
+            .getBoolean("autocorrect_auto", false)
+
+    // Code 49: after a letter or a Delete, read the whole word
+    // before the cursor back into the keyboard view, so a word
+    // fixed by backspacing into it is seen whole, not just the
+    // retyped letters. Not in password fields.
+    private fun syncTypedWordFromField() {
+        if (!::keyboardView.isInitialized || isPasswordField()) return
+        val fieldWord = fieldWordBeforeCursor() ?: ""
+        // Only letters (and apostrophes inside a word) count; a
+        // bare apostrophe run is not a word.
+        val clean = if (fieldWord.any { it.isLetter() }) fieldWord else ""
+        keyboardView.syncTypedWord(clean)
+    }
     // Code 37: one-tap apostrophe alternative after
     // a swipe, e.g. swiped "well" -> tap left slot
     // for "we'll". (alternative, committed word).
@@ -248,15 +277,29 @@ class PressPopIME : InputMethodService() {
     // Ordered next-word predictions for [ctx]: learned pairs first,
     // then the n-gram model, trigram, bigram (same order the strip
     // has always used for next-word offers).
+    // Code 48: the built-in tables and the n-gram model are
+    // English, so they only feed predictions in English; learned
+    // pairs (the user's own habits) work in every language. The
+    // model's new 2-word and 1-word backoff tables fill the gap
+    // that left the strip empty after one or two words.
     private fun predictedNext(ctx: List<String>): List<String> {
         if (ctx.isEmpty()) return emptyList()
         val prev = ctx.last()
         val prevPrev = if (ctx.size >= 2) ctx[ctx.size - 2] else ""
+        val learned = personal.learnedNextWords(prev)
+        if (Dictionary.languageCode != "en") return learned.distinct().take(12)
         val trigram = if (prevPrev.isNotEmpty()) {
             Dictionary.TRIGRAMS["$prevPrev $prev"] ?: emptyList()
         } else emptyList()
-        return (personal.learnedNextWords(prev) + NgramModel.nextWords(ctx) +
-            trigram + (Dictionary.BIGRAMS[prev] ?: emptyList()))
+        // Backoff votes can carry a fragment or a name from the
+        // source text ("th", "claudia"), so model-sourced words
+        // must be real dictionary words to be offered.
+        fun real(l: List<String>) = l.filter { w ->
+            (w.length > 1 || w == "a" || w == "i") && Dictionary.isWord(w)
+        }
+        return (learned + real(NgramModel.nextWords(ctx)) + trigram +
+            real(NgramModel.nextWordsFromTwo(ctx)) + (Dictionary.BIGRAMS[prev] ?: emptyList()) +
+            real(NgramModel.nextWordsFromOne(ctx)))
             .distinct().take(12)
     }
 
@@ -290,6 +333,9 @@ class PressPopIME : InputMethodService() {
     }
 
     private var darkMode = false
+    // Code 51: the keyboard color theme (KeyboardTheme). The strip,
+    // popups and panels draw with it too, so they match the keys.
+    private var theme: KeyboardPalette = KeyboardTheme.CLASSIC_LIGHT
     // Auto-capitalization for this field: on for plain text, off for
     // passwords, email addresses, URLs, numbers and phone fields.
     // Password-field safety, code 26 (Wilson: "Just make
@@ -356,9 +402,11 @@ class PressPopIME : InputMethodService() {
         // Code 30 2nd commit: theme is Light, Dark, or
         // System (follow the device), resolved here so
         // the keyboard and the app screen agree.
-        darkMode = ThemeMode.isDark(this, settings)
+        theme = KeyboardTheme.resolve(this, settings)
+        darkMode = theme.isDark
         if (::keyboardView.isInitialized) {
             keyboardView.darkMode = darkMode
+            keyboardView.palette = theme
             // Code 34: redraw the keys at once.
             // Setting darkMode alone did not
             // repaint the canvas until the next
@@ -370,12 +418,12 @@ class PressPopIME : InputMethodService() {
         }
         if (::strip.isInitialized) {
             strip.setBackgroundColor(
-                if (darkMode) Color.parseColor("#111827") else Color.WHITE
+                theme.strip
             )
         }
         if (::languageButton.isInitialized) {
             languageButton.setTextColor(
-                if (darkMode) Color.WHITE else Color.BLACK
+                theme.text
             )
         }
     }
@@ -389,7 +437,8 @@ class PressPopIME : InputMethodService() {
         personal.purgeDictionaryWordsOnce()
         clipboard = ClipboardHistory(this)
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
-        darkMode = ThemeMode.isDark(this, settings)
+        theme = KeyboardTheme.resolve(this, settings)
+        darkMode = theme.isDark
         ErrorReporter.install(this)
         // Restore a custom language pack, if one was installed.
         run {
@@ -468,7 +517,7 @@ class PressPopIME : InputMethodService() {
         }
         strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(if (darkMode) Color.parseColor("#111827") else Color.WHITE)
+            setBackgroundColor(theme.strip)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 (56 * resources.displayMetrics.density).toInt()
@@ -483,7 +532,7 @@ class PressPopIME : InputMethodService() {
             text = "📋"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(theme.text)
             setOnClickListener { toggleClipboardPanel() }
             strip.addView(this)
         }
@@ -501,7 +550,7 @@ class PressPopIME : InputMethodService() {
             text = languageLabel()
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 16f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(theme.text)
             setOnClickListener { toggleLanguage() }
             strip.addView(this)
         }
@@ -514,7 +563,7 @@ class PressPopIME : InputMethodService() {
             text = "GIF"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 16f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(theme.text)
             setOnClickListener { toggleGifPanel() }
             strip.addView(this)
         }
@@ -523,7 +572,7 @@ class PressPopIME : InputMethodService() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
                 textAlignment = View.TEXT_ALIGNMENT_CENTER
                 textSize = 17f
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(theme.text)
                 setOnClickListener { onSuggestionTapped(index) }
                 strip.addView(this)
             }
@@ -539,7 +588,7 @@ class PressPopIME : InputMethodService() {
             text = "🎤"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(theme.text)
             setOnClickListener { handleVoice() }
             strip.addView(this)
         }
@@ -548,7 +597,7 @@ class PressPopIME : InputMethodService() {
 
         clipboardPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (darkMode) Color.parseColor("#1F2937") else Color.parseColor("#F3F4F6"))
+            setBackgroundColor(theme.panel)
             visibility = View.GONE
         }
 
@@ -558,7 +607,7 @@ class PressPopIME : InputMethodService() {
         // search box focus trick is needed.
         gifPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (darkMode) Color.parseColor("#1F2937") else Color.WHITE)
+            setBackgroundColor(theme.panel)
             visibility = View.GONE
         }
         LinearLayout(this).apply {
@@ -567,7 +616,7 @@ class PressPopIME : InputMethodService() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 text = "Search GIFs…"
                 textSize = 16f
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(theme.text)
                 setPadding(24, 16, 24, 16)
             }
             addView(gifQueryText)
@@ -599,7 +648,7 @@ class PressPopIME : InputMethodService() {
         gifInfoText = TextView(this).apply {
             text = "Type a search with the keyboard, then tap Search. Tap a GIF to insert it."
             textSize = 14f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(theme.text)
             setPadding(24, 8, 24, 8)
             gifPanel.addView(this)
         }
@@ -835,6 +884,14 @@ class PressPopIME : InputMethodService() {
                             ) {
                                 keyboardView.shiftOn = false
                             }
+                            // Code 49: a letter typed right after
+                            // letters left in the field (a word being
+                            // fixed) joins that whole word.
+                            if (keyboardView.mode == KeyboardMode.LETTERS &&
+                                key.output.length == 1 && key.output[0].isLetter()
+                            ) {
+                                syncTypedWordFromField()
+                            }
                         }
                         KeyAction.SPACE -> handleSpace()
                         KeyAction.DELETE -> handleDelete()
@@ -878,6 +935,7 @@ class PressPopIME : InputMethodService() {
                                     ic.commitText(enterPronounI, 1)
                                     recordCommittedWord(enterPronounI)
                                     lastCorrected = enterWord to enterPronounI
+                                    lastCorrectedLearns = true
                                 } else if (true) {
                                 val enterContraction = Dictionary.CONTRACTIONS[enterWord.lowercase()]
                                 val enterCased = Dictionary.specialCasing(enterWord.lowercase())
@@ -899,6 +957,7 @@ class PressPopIME : InputMethodService() {
                                     ic.commitText(enterContraction, 1)
                                     recordCommittedWord(enterContraction)
                                     lastCorrected = enterWord to enterContraction
+                                    lastCorrectedLearns = true
                                 } else if (!Dictionary.isWord(enterCheckWord) &&
                                     !personal.isPersonal(enterCheckWord) &&
                                     enterCheckWord.all { it.code < 128 } &&
@@ -910,10 +969,28 @@ class PressPopIME : InputMethodService() {
                                     // suggestion.
                                     !enterCheckWord.drop(1).any { it.isUpperCase() }
                                 ) {
-                                    val enterCorrection = Dictionary.bestCorrection(
-                                        enterCheckWord, personal.allPersonalWords()
+                                    val enterFixedWord = Dictionary.bestCorrection(
+                                        enterCheckWord, personal.allPersonalWords(),
+                                        predictedNext(contextWordsBeforeCurrent())
                                     )
-                                    if (enterCorrection != null) {
+                                    val enterSplit = Dictionary.spaceSlipSplit(enterCheckWord)
+                                    val enterCorrection = if (enterSplit != null &&
+                                        (enterFixedWord == null || Dictionary.isCommonSplit(enterSplit))
+                                    ) enterSplit else enterFixedWord
+                                    if (enterCorrection != null && autoReplaceOn()) {
+                                        // Code 49, auto-replace mode:
+                                        // same as Space — swap now,
+                                        // undo from the left slot or
+                                        // Backspace.
+                                        val enterFixed = Dictionary.specialCasing(enterCorrection.lowercase())
+                                            ?: capitalizeForSentenceStart(enterCorrection, enterCheckWord.length)
+                                        ic.deleteSurroundingText(enterCheckWord.length, 0)
+                                        ic.commitText(enterFixed, 1)
+                                        lastCorrected = enterCheckWord to enterFixed
+                                        lastCorrectedLearns = true
+                                        if (::strip.isInitialized) showSuggestionPopup(strip, enterFixed)
+                                        recordCommittedWord(enterFixed.substringAfterLast(' '))
+                                    } else if (enterCorrection != null) {
                                         // Code 44 (Wilson, Nov 9,
                                         // 2026): Enter is suggest-only
                                         // too — the word stays as
@@ -1004,15 +1081,31 @@ class PressPopIME : InputMethodService() {
             // word, so guessing "we'll" would be
             // wrong just as often. The twin keeps
             // the committed word's capitalisation.
+            val capFirst = committedForm.firstOrNull()?.isUpperCase() == true
             lastSwipeAlternative = if (isPassword) {
                 null
             } else {
                 Dictionary.apostropheTwin(swipedWord)?.let { twin ->
-                    val twinForm = if (committedForm.firstOrNull()?.isUpperCase() == true) {
+                    val twinForm = if (capFirst) {
                         twin.replaceFirstChar { it.uppercaseChar() }
                     } else twin
                     twinForm to committedForm
-                }
+                } ?: keyboardView.lastSwipeAlternatives
+                    // Code 48: no apostrophe twin, so offer the
+                    // swipe's runner-up word in the left slot
+                    // instead — one tap swaps it in, as Gboard
+                    // does. Same casing as the committed word.
+                    .firstOrNull { it.lowercase() != word.lowercase() }
+                    ?.let { alt ->
+                        val altBase = Dictionary.CONTRACTIONS[alt.lowercase()] ?: alt
+                        val altWord = capitalizePronounI(altBase)
+                            ?: Dictionary.specialCasing(altBase.lowercase()) ?: altBase
+                        val altForm = if (capFirst) {
+                            altWord.replaceFirstChar { it.uppercaseChar() }
+                        } else altWord
+                        if (altForm.lowercase() == committedForm.lowercase()) null
+                        else altForm to committedForm
+                    }
             }
             if (keyboardView.shiftOn && !keyboardView.shiftLock) {
                 keyboardView.shiftOn = false
@@ -1066,6 +1159,11 @@ class PressPopIME : InputMethodService() {
                     val pos = (extracted.selectionStart + delta)
                         .coerceIn(0, extracted.text.length)
                     ic.setSelection(pos, pos)
+                    // Code 49: the word now before the cursor
+                    // is the word being typed.
+                    lastCorrected = null
+                    pendingCorrection = null
+                    syncTypedWordFromField()
                 }
             }
         }
@@ -1368,7 +1466,7 @@ class PressPopIME : InputMethodService() {
             TextView(this).apply {
                 this.text = text
                 textSize = 16f
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(theme.text)
                 setPadding(24, 16, 24, 16)
                 maxLines = 1
                 if (onClick != null) setOnClickListener { onClick() }
@@ -1442,6 +1540,20 @@ class PressPopIME : InputMethodService() {
         return run.ifEmpty { null }
     }
 
+    // Code 50 (Wilson, Nov 18, 2026: "It will sometimes capitalize
+    // even when I'm backspacing to a word I want to fix"): this used
+    // to only ever turn shift ON. Backspacing "home. " to "home."
+    // turned it on (the text ended with a period), and deleting the
+    // period left it on, so the fixed word came out "homeS". Now:
+    // - auto-shift needs a REAL sentence start: an empty field, or
+    //   . ? ! followed by a space. Right after a bare mark ("home.|")
+    //   the user is editing, not starting a sentence (a letter typed
+    //   there still gets its capital through the lazy-space rule).
+    // - a shift that THIS function turned on is turned back off as
+    //   soon as the cursor is no longer at a sentence start. A shift
+    //   the user tapped is never touched.
+    private var autoShifted = false
+
     private fun updateAutoShift() {
         if (!autoCapitalize || !::keyboardView.isInitialized ||
             keyboardView.shiftLock
@@ -1451,9 +1563,19 @@ class PressPopIME : InputMethodService() {
             ic.getTextBeforeCursor(64, 0)
         } catch (e: Exception) {
             null
-        }
-        if (isCapitalizeStart(before)) {
-            keyboardView.shiftOn = true
+        } ?: return
+        val atStart = before.isBlank() ||
+            (before.last().isWhitespace() && before.trimEnd().lastOrNull() in setOf('.', '?', '!'))
+        if (atStart) {
+            if (!keyboardView.shiftOn) {
+                keyboardView.shiftOn = true
+                autoShifted = true
+            }
+        } else if (autoShifted && keyboardView.shiftOn) {
+            keyboardView.shiftOn = false
+            autoShifted = false
+        } else {
+            autoShifted = false
         }
     }
 
@@ -1569,7 +1691,7 @@ class PressPopIME : InputMethodService() {
         }
         ic.deleteSurroundingText(corrected.second.length + 1, 0)
         ic.commitText(corrected.first + terminator, 1)
-        personal.addManual(corrected.first)
+        if (lastCorrectedLearns) personal.addManual(corrected.first)
         keyboardView.personalWords = personal.allPersonalWords()
         lastCorrected = null
         keyboardView.setTypedWord("")
@@ -1597,6 +1719,10 @@ class PressPopIME : InputMethodService() {
         } else {
             ic.deleteSurroundingText(1, 0)
         }
+        // Code 49: backspacing into a word makes that whole word
+        // the word being typed, so suggestions and autocorrect see
+        // "hel" after deleting "lo" from "hello", not nothing.
+        syncTypedWordFromField()
         updateAutoShift()
     }
 
@@ -1726,6 +1852,7 @@ class PressPopIME : InputMethodService() {
                 // word popping on v30.
                 if (::strip.isInitialized) showSuggestionPopup(strip, contraction)
                 lastCorrected = word to contraction
+                lastCorrectedLearns = true
                 committedWordThisSpace = contraction
             } else if (!Dictionary.isWord(checkWord) && !personal.isPersonal(checkWord) &&
                 checkWord.all { it.code < 128 } &&
@@ -1757,8 +1884,35 @@ class PressPopIME : InputMethodService() {
                 // retyping "ello" after the "h" finds the
                 // field word already correct and offers
                 // nothing, instead of adding a second "h".
-                val correction = Dictionary.bestCorrection(checkWord, personal.allPersonalWords())
-                if (correction != null) {
+                // Code 49: the sentence so far ranks the candidates.
+                // Code 50: two words glued by a key above Space
+                // ("thebcat") or a missed Space ("inthe") split back
+                // into two — preferred when both are very common.
+                val fixedWord = Dictionary.bestCorrection(
+                    checkWord, personal.allPersonalWords(),
+                    predictedNext(contextWordsBeforeCurrent())
+                )
+                val split = Dictionary.spaceSlipSplit(checkWord)
+                val correction = if (split != null &&
+                    (fixedWord == null || Dictionary.isCommonSplit(split))
+                ) split else fixedWord
+                if (correction != null && autoReplaceOn()) {
+                    // Code 49, auto-replace mode: swap the whole
+                    // field word for the correction now. The typed
+                    // word goes in the left slot, and Backspace or
+                    // a tap on it undoes the swap (and learns the
+                    // word, so it is not corrected again).
+                    val suggestion =
+                        Dictionary.specialCasing(correction.lowercase())
+                            ?: capitalizeForSentenceStart(correction, checkWord.length)
+                    showDebug("Autocorrect: '$checkWord' -> '$suggestion' (replaced)")
+                    ic.deleteSurroundingText(checkWord.length, 0)
+                    ic.commitText(suggestion, 1)
+                    lastCorrected = checkWord to suggestion
+                    lastCorrectedLearns = true
+                    committedWordThisSpace = suggestion.substringAfterLast(' ')
+                    if (::strip.isInitialized) showSuggestionPopup(strip, suggestion)
+                } else if (correction != null) {
                     val suggestion =
                         Dictionary.specialCasing(correction.lowercase())
                             ?: capitalizeForSentenceStart(correction, checkWord.length)
@@ -1881,7 +2035,14 @@ class PressPopIME : InputMethodService() {
         if (word.isEmpty() && ::keyboardView.isInitialized) {
             keyboardView.contextWords = contextPredicted
         }
-        val nextWords = if (word.isEmpty()) contextPredicted.take(2) else emptyList()
+        // Code 48: at the start of a field or sentence there are no
+        // words to predict from, so the strip used to stay blank.
+        // English now offers common sentence openers there.
+        val nextWords = if (word.isEmpty()) {
+            if (contextPredicted.isNotEmpty()) contextPredicted.take(2)
+            else if (Dictionary.languageCode == "en") Dictionary.SENTENCE_STARTERS.take(2)
+            else emptyList()
+        } else emptyList()
         val baseCompletions = if (word.length >= 2) {
             Dictionary.completions(word, personalWords, contextPredicted)
         } else emptyList()
@@ -1964,8 +2125,8 @@ class PressPopIME : InputMethodService() {
         suggestionViews.forEachIndexed { i, view ->
             view.text = texts[i]
             view.setTextColor(
-                if (i == 1 && texts[i].isNotEmpty()) Color.parseColor("#3B82F6")
-                else if (darkMode) Color.WHITE else Color.BLACK
+                if (i == 1 && texts[i].isNotEmpty()) theme.accentBottom
+                else theme.text
             )
         }
     }
@@ -2010,11 +2171,10 @@ class PressPopIME : InputMethodService() {
                     // Same 8dp corners as the keys, Nov 2, 2026.
                     cornerRadius = 8 * density
                     setColor(
-                        if (darkMode) Color.parseColor("#374151")
-                        else Color.WHITE
+                        theme.popup
                     )
                 }
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(theme.text)
             }
             bubble.measure(
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -2119,7 +2279,7 @@ class PressPopIME : InputMethodService() {
             )
             ic.deleteSurroundingText(charsToDrop, 0)
             ic.commitText(restored + terminator, 1)
-            personal.addManual(corrected.first)
+            if (lastCorrectedLearns) personal.addManual(corrected.first)
             keyboardView.personalWords = personal.allPersonalWords()
             lastCorrected = null
             keyboardView.setTypedWord("")
@@ -2147,6 +2307,15 @@ class PressPopIME : InputMethodService() {
             val charsToDrop = swipeAlt.second.length + if (terminator.isNotEmpty()) 1 else 0
             ic.deleteSurroundingText(charsToDrop, 0)
             ic.commitText(swipeAlt.first + terminator, 1)
+            // Code 48: the swapped-out word must not stay as the
+            // "previous word", or the swap would be learned as a
+            // pair ("the" -> "they") and show up as a prediction.
+            if (committedHistory.isNotEmpty() &&
+                committedHistory.last() == swipeAlt.second.lowercase().trim()
+            ) {
+                committedHistory.removeAt(committedHistory.size - 1)
+                lastCommittedWord = committedHistory.lastOrNull() ?: ""
+            }
             recordCommittedWord(swipeAlt.first)
             lastSwipeAlternative = null
             keyboardView.setTypedWord("")
@@ -2195,8 +2364,14 @@ class PressPopIME : InputMethodService() {
                 val charsToDrop = pending.first.length + 1
                 ic.deleteSurroundingText(charsToDrop, 0)
                 ic.commitText(pending.second + terminator, 1)
-                recordCommittedWord(pending.second)
+                recordCommittedWord(pending.second.substringAfterLast(' '))
                 pendingCorrection = null
+                // Code 49: the applied fix can be undone too —
+                // the typed word shows in the left slot, and
+                // Backspace restores it. The user chose this fix,
+                // so undoing it learns nothing.
+                lastCorrected = pending.first to pending.second
+                lastCorrectedLearns = false
                 keyboardView.setTypedWord("")
                 refreshSuggestions("")
                 showSuggestionPopup(view, pending.second)
@@ -2342,11 +2517,11 @@ class PressPopIME : InputMethodService() {
         val chipW = (240 * density).toInt()
         val stylesBuilder = UiVersions.newStylesBuilder()
         val title = androidx.autofill.inline.common.TextViewStyle.Builder()
-            .setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            .setTextColor(theme.text)
             .setTextSize(14f)
             .build()
         val chip = androidx.autofill.inline.common.ViewStyle.Builder()
-            .setBackgroundColor(if (darkMode) Color.parseColor("#374151") else Color.WHITE)
+            .setBackgroundColor(theme.popup)
             .setPadding(
                 (12 * density).toInt(),
                 (6 * density).toInt(),
@@ -2496,6 +2671,19 @@ class PressPopIME : InputMethodService() {
         if (::keyboardView.isInitialized) {
             clearAutofillRow()
             keyboardView.suppressDebug = isPasswordField()
+            // Code 50: predictive touch, from the app setting (on by
+            // default), never in password, email or web-address
+            // fields, where the text is not dictionary words.
+            run {
+                val v = (currentInputEditorInfo?.inputType ?: 0) and InputType.TYPE_MASK_VARIATION
+                val notWords = isPasswordField() ||
+                    v == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+                    v == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
+                    v == InputType.TYPE_TEXT_VARIATION_URI
+                keyboardView.predictiveTouch = !notWords &&
+                    getSharedPreferences("presspop_settings", MODE_PRIVATE)
+                        .getBoolean("predictive_touch", true)
+            }
             // Auto numpad, Oct 29, 2026 (Wilson): a PIN / number /
             // phone field used to open the full letter keyboard
             // every time, because this always forced LETTERS here.

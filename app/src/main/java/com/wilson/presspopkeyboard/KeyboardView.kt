@@ -84,6 +84,31 @@ class KeyboardView @JvmOverloads constructor(
     // sentence context and the user's own habits, not just the one
     // previous word against the generic BIGRAMS table.
     var contextWords: List<String> = emptyList()
+    // Code 48: the runner-up words from the last swipe (best
+    // first, the committed word excluded), so PressPopIME can
+    // offer one in the strip as a one-tap swap, like Gboard.
+    var lastSwipeAlternatives: List<String> = emptyList()
+        private set
+    // Code 50 (Wilson, Nov 18, 2026: "It's not doing a good job
+    // predicting what letter I'm trying to hit next based on the
+    // word I'm trying to type"): predictive touch, set by
+    // PressPopIME from the app setting, and off in password /
+    // email / URL fields. See keyForTap.
+    var predictiveTouch: Boolean = false
+    private var downResolvedByPrior = false
+    // Code 48: candidate key-center paths, cached per layout.
+    // The old matcher rebuilt and resampled every candidate's
+    // path on every swipe; the keys only move when the layout
+    // changes, so the paths are built once and reused.
+    private class SwipeTemplate(
+        val path: List<PointF>,
+        val length: Float,
+        val last: PointF
+    ) {
+        var ordered: List<PointF>? = null
+    }
+    private val templateCache = HashMap<String, SwipeTemplate?>()
+    private var templateCacheLayout: Any? = null
     private var downAction: KeyAction? = null
     private var downTimeMs: Long = 0L
     // Code 39 (Wilson, Nov 3, 2026): two-thumb ghost swipe.
@@ -132,6 +157,17 @@ class KeyboardView @JvmOverloads constructor(
             field = value
             invalidate()
         }
+
+    // Code 51: the color theme every part of the view draws with
+    // (see KeyboardTheme). Set by PressPopIME on every new field.
+    var palette: KeyboardPalette = KeyboardTheme.CLASSIC_LIGHT
+        set(value) {
+            field = value
+            invalidate()
+        }
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
 
     // Key tap pop sound, Oct 29, 2026 (Wilson: no sound at all before
     // this — haptics only). A short synthesized pop in res/raw, played
@@ -259,6 +295,24 @@ class KeyboardView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * Code 49: set the word being typed to the WHOLE word in the
+     * field before the cursor, read by PressPopIME. Fixing a word
+     * by backspacing into it used to leave typedWord holding only
+     * the letters retyped since ("hello" -> delete "lo" -> retype
+     * "p" gave "p", not "help"), so suggestions, completions and
+     * autocorrect only ever saw the new letters. Casing evidence
+     * follows the field word too.
+     */
+    fun syncTypedWord(fieldWord: String) {
+        val lower = fieldWord.lowercase()
+        val hadUpper = fieldWord.any { it.isUpperCase() }
+        if (lower == typedWord && hadUpper == typedWordHadUpper) return
+        typedWord = lower
+        typedWordHadUpper = hadUpper
+        onWordChanged?.invoke(typedWord)
+    }
+
     private fun noteTypedWordChange() {
         onWordChanged?.invoke(typedWord)
     }
@@ -344,12 +398,10 @@ class KeyboardView @JvmOverloads constructor(
                     // above a pressed key reads as a larger
                     // version of that key, LeanType-style.
                     cornerRadius = 8 * density
-                    setColor(
-                        if (darkMode) Color.parseColor("#374151")
-                        else Color.WHITE
-                    )
+                    setColor(palette.popup)
+                    palette.outline?.let { setStroke((1 * density).toInt().coerceAtLeast(1), it) }
                 }
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(palette.text)
             }
             val popupW = maxOf(rect.width() * 1.25f, dp(56f))
             val popupH = rect.height() * 1.45f + dp(12f)
@@ -717,12 +769,21 @@ class KeyboardView @JvmOverloads constructor(
         val rowsHeight = rowHeight * rows.size + gap * (rows.size + 1) + debugOffset
         var top = if (height > rowsHeight) height - rowsHeight + gap + debugOffset else gap + debugOffset
         val insetRowIndex = if (showNumberRow && mode == KeyboardMode.LETTERS) 2 else 1
+        // Code 48 (Wilson, Nov 18, 2026: the PIN pad was "just
+        // too wide"): the number pad is a compact pad centered on
+        // the keyboard, at most 360dp wide, instead of stretching
+        // three digits across a full tablet width. Taps outside
+        // the pad do nothing (keyAt only accepts touches near a
+        // key). On a narrow screen it is simply full width.
+        val fullW = width - gap * 2
+        val contentW = if (mode == KeyboardMode.NUMPAD) minOf(fullW, dp(360f)) else fullW
+        val contentLeft = gap + (fullW - contentW) / 2f
         for ((rowIndex, row) in rows.withIndex()) {
             val totalWeight = row.sumOf { it.weight.toDouble() }.toFloat()
             val isInsetRow = rowIndex == insetRowIndex && mode == KeyboardMode.LETTERS
-            val inset = if (isInsetRow) (width - (width - gap * 2) * 0.9f) / 2f else 0f
-            val rowWidth = if (isInsetRow) (width - gap * 2) * 0.9f else width - gap * 2
-            var left = gap + inset
+            val inset = if (isInsetRow) (contentW - contentW * 0.9f) / 2f else 0f
+            val rowWidth = if (isInsetRow) contentW * 0.9f else contentW
+            var left = contentLeft + inset
             for (key in row) {
                 val w = rowWidth * key.weight / totalWeight - gap
                 rects.add(KeyRect(key, RectF(left, top, left + w, top + rowHeight)))
@@ -791,6 +852,86 @@ class KeyboardView @JvmOverloads constructor(
         }
         // Accept only if reasonably near a key.
         return if (bestScore <= dp(26f)) best else null
+    }
+
+    /**
+     * Code 50, predictive touch — rebuilt with a guard after the
+     * Oct 28 version made typing worse (a precise tap could be
+     * stolen by a predicted key). Wilson asked for prediction again
+     * on Nov 18, 2026, so it is back, but only where the tap is
+     * genuinely ambiguous:
+     * - A tap in the CENTRE of a key (the middle 60% of its width
+     *   and height) always types that key, whatever is predicted.
+     * - A tap near a key's edge, in a gap, or just below the bottom
+     *   row weighs two things: how close it is to each nearby key
+     *   (a soft Gaussian around each key centre), and how likely
+     *   that key is next for the word being typed
+     *   (Dictionary.nextKeyPrior). So a tap on the lower edge of
+     *   "j" after "a" gives "n" ("an", "and"), and a tap on the lower
+     *   edge of "b" or "v" right after "the" gives Space.
+     * - Only on the letters page, only after the first letter of a
+     *   word, and never when the typed letters are not the start of
+     *   any dictionary word.
+     */
+    private fun keyForTap(x: Float, y: Float): KeyRect? {
+        downResolvedByPrior = false
+        val nearest = keyAt(x, y) ?: return null
+        if (!predictiveTouch || mode != KeyboardMode.LETTERS) return nearest
+        val nk = nearest.key
+        val nearestIsLetter = nk.action == KeyAction.CHAR &&
+            nk.output.length == 1 && nk.output[0].isLetter()
+        if (!nearestIsLetter && nk.action != KeyAction.SPACE) return nearest
+        val r = nearest.rect
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+            val fx = kotlin.math.abs(x - r.centerX()) / (r.width() / 2f)
+            val fy = kotlin.math.abs(y - r.centerY()) / (r.height() / 2f)
+            if (nk.action == KeyAction.SPACE) {
+                if (fy <= 0.6f) return nearest
+            } else if (fx <= 0.6f && fy <= 0.6f) {
+                return nearest
+            }
+        }
+        val prefix = typedWord
+        if (prefix.isEmpty()) return nearest
+        val prior = Dictionary.nextKeyPrior(prefix) ?: return nearest
+        val letterRects = keyRects.filter {
+            it.key.action == KeyAction.CHAR && it.key.output.length == 1 && it.key.output[0].isLetter()
+        }
+        if (letterRects.isEmpty()) return nearest
+        val keyW = letterRects.map { it.rect.width() }.sorted()[letterRects.size / 2]
+        val keyH = rowHeight.takeIf { it > 0f } ?: keyW
+        val sx = keyW * 0.45f
+        val sy = keyH * 0.45f
+        var best = nearest
+        var bestScore = -1f
+        for (kr in keyRects) {
+            val isLetter = kr.key.action == KeyAction.CHAR &&
+                kr.key.output.length == 1 && kr.key.output[0].isLetter()
+            val isSpace = kr.key.action == KeyAction.SPACE
+            if (!isLetter && !isSpace) continue
+            // Horizontal distance to a wide Space bar is 0 anywhere
+            // over it; for letters it is to the key centre.
+            val dx = if (isSpace) {
+                when {
+                    x < kr.rect.left -> kr.rect.left - x
+                    x > kr.rect.right -> x - kr.rect.right
+                    else -> 0f
+                }
+            } else x - kr.rect.centerX()
+            val dy = y - kr.rect.centerY()
+            if (kotlin.math.abs(dx) > keyW * 1.2f || kotlin.math.abs(dy) > keyH * 1.2f) continue
+            val touch = kotlin.math.exp(-(dx * dx) / (2f * sx * sx) - (dy * dy) / (2f * sy * sy))
+            val ch = if (isSpace) ' ' else kr.key.output[0].lowercaseChar()
+            // 25% flat share, so an unpredicted key can still win
+            // on a clearly closer tap.
+            val score = touch * (0.25f / 27f + 0.75f * (prior[ch] ?: 0f))
+            if (score > bestScore) {
+                bestScore = score
+                best = kr
+            }
+        }
+        downResolvedByPrior = best !== nearest
+        return best
     }
 
     private fun pathLength(): Float {
@@ -989,6 +1130,19 @@ class KeyboardView @JvmOverloads constructor(
             if (d < startDist) { startDist = d; startLetter = letter }
         }
         if (startDist > keyW * 0.9f) startLetter = null
+        // Code 48: a swipe that starts between two keys used to be
+        // locked to the single nearest key, so "that" started on the
+        // t/r border could only ever match r-words until the whole
+        // first pass failed. Every key within 0.75 key widths of the
+        // touch-down point is now a possible first letter, and the
+        // farther ones pay a small start penalty in the rescore.
+        val startLetters: Set<String>? = if (startLetter == null) null else {
+            val near = centers.entries
+                .filter { hypot(it.value.x - first.x, it.value.y - first.y) <= keyW * 0.75f }
+                .map { it.key }.toMutableSet()
+            near.add(startLetter!!)
+            near
+        }
         val lift = swipePoints.last()
         var liftLetter: String? = null
         var liftDist = Float.MAX_VALUE
@@ -1077,6 +1231,41 @@ class KeyboardView @JvmOverloads constructor(
         val contextRank = HashMap<String, Int>()
         for ((ci, cw) in contextWords.withIndex()) contextRank.putIfAbsent(cw.lowercase(), ci)
         data class Scored(val word: String, val geometry: Float, val rescore: Float)
+        if (templateCacheLayout !== keyRects) {
+            templateCache.clear()
+            templateCacheLayout = keyRects
+        }
+        fun templateFor(lower: String): SwipeTemplate? {
+            if (templateCache.containsKey(lower)) return templateCache[lower]
+            val path = mutableListOf<PointF>()
+            var ok = true
+            // Code 37: apostrophes have no key on
+            // the letters layout, so a candidate
+            // like "we'll" must not fail here.
+            // Skip non-letters in the template:
+            // "we'll" then templates as w-e-l-l,
+            // exactly the trace a user swipes,
+            // and can compete with "well" on
+            // geometry, frequency, and bigram.
+            for (c in lower) {
+                if (!c.isLetter()) continue
+                val center = centers[c.toString()]
+                if (center == null) { ok = false; break }
+                if (path.isEmpty() || hypot(center.x - path.last().x, center.y - path.last().y) > 1f) {
+                    path.add(center)
+                }
+            }
+            val t = if (!ok || path.size < 2) null else {
+                var len = 0f
+                for (i in 1 until path.size) {
+                    len += hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+                }
+                SwipeTemplate(path, len, path.last())
+            }
+            templateCache[lower] = t
+            return t
+        }
+        var lastPassing: List<Scored> = emptyList()
         fun scoreCandidates(allowedStarts: Set<String>?): List<Scored> {
             val out = mutableListOf<Scored>()
             // Personal first, deduped by lowercase, so
@@ -1101,36 +1290,22 @@ class KeyboardView @JvmOverloads constructor(
                     (lower.isEmpty() || lower[0].toString() !in allowedStarts)
                 ) continue
                 if (cand.length < 2) continue
-                val path = mutableListOf<PointF>()
-                var ok = true
-                // Code 37: apostrophes have no key on
-                // the letters layout, so a candidate
-                // like "we'll" must not fail here.
-                // Skip non-letters in the template:
-                // "we'll" then templates as w-e-l-l,
-                // exactly the trace a user swipes,
-                // and can compete with "well" on
-                // geometry, frequency, and bigram.
-                for (c in lower) {
-                    if (!c.isLetter()) continue
-                    val center = centers[c.toString()]
-                    if (center == null) { ok = false; break }
-                    if (path.isEmpty() || hypot(center.x - path.last().x, center.y - path.last().y) > 1f) {
-                        path.add(center)
-                    }
-                }
-                if (!ok || path.size < 2) continue
-                var candLen = 0f
-                for (i in 1 until path.size) {
-                    candLen += hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
-                }
+                val tmpl = templateFor(lower) ?: continue
+                val path = tmpl.path
+                val candLen = tmpl.length
                 // Path-length gate, loose on the long
                 // side (a wandering finger lengthens
                 // the actual path) and tighter on the
                 // short side (a short actual path
                 // cannot be a long word).
                 if (candLen > actualLen * 1.6f || candLen < actualLen * 0.25f) continue
-                val orderedPath = resamplePath(path, 32)
+                // Code 48, lift gate: a word whose last key is
+                // nearly two keys away from where the finger
+                // lifted cannot be the word. Cheap, and it
+                // skips the costly shape scoring for most of
+                // the dictionary.
+                if (hypot(tmpl.last.x - lift.x, tmpl.last.y - lift.y) > keyW * 1.8f) continue
+                val orderedPath = tmpl.ordered ?: resamplePath(path, 32).also { tmpl.ordered = it }
                 var orderedSum = 0f
                 for (i in actual.indices) {
                     orderedSum += hypot(actual[i].x - orderedPath[i].x, actual[i].y - orderedPath[i].y)
@@ -1138,6 +1313,10 @@ class KeyboardView @JvmOverloads constructor(
                 val orderedScore = orderedSum / actual.size
                 val geometry = chamferScore(actual, path) * chamferWeight + orderedScore * orderedWeight
                 var rescore = geometry
+                // Code 48: start penalty for a first letter that is
+                // not the key nearest the touch-down point.
+                val startGap = hypot(path[0].x - first.x, path[0].y - first.y) - startDist
+                if (startGap > 0f) rescore += startGap * 0.5f
                 if (lower in personalSet) rescore -= keyW * 0.30f
                 val rank = Dictionary.rankOf(lower)
                 if (rank != null && rank < 500) rescore -= keyW * 0.25f
@@ -1155,7 +1334,9 @@ class KeyboardView @JvmOverloads constructor(
                 }
                 out.add(Scored(cand, geometry, rescore))
             }
-            return out.sortedBy { it.geometry }.take(8)
+            // Code 48: rescore the top 12 shapes, not 8, so a common
+            // word just behind on geometry can still win on context.
+            return out.sortedBy { it.geometry }.take(12)
         }
         fun pickFrom(scored: List<Scored>): Scored? {
             if (scored.isEmpty()) return null
@@ -1164,6 +1345,7 @@ class KeyboardView @JvmOverloads constructor(
             // Geometry gates first: boosts never rescue
             // a word whose shape is too far off.
             val passing = scored.filter { it.geometry <= thresholdLift }
+            lastPassing = passing
             if (passing.isEmpty()) return null
             var best = passing.minByOrNull { it.rescore } ?: return null
             if (best.geometry > thresholdNormal) {
@@ -1187,7 +1369,8 @@ class KeyboardView @JvmOverloads constructor(
             }
             return best
         }
-        val firstStarts = if (startLetter == null) null else setOf(startLetter)
+        lastSwipeAlternatives = emptyList()
+        val firstStarts = startLetters
         var picked = pickFrom(scoreCandidates(firstStarts))
         if (picked == null && startLetter != null) {
             val neighbors = centers.entries
@@ -1212,7 +1395,17 @@ class KeyboardView @JvmOverloads constructor(
         val thresholdLift = keyW * 1.05f
         val okThreshold = picked.geometry <= thresholdNormal ||
             (liftLetter != null && picked.word.endsWith(liftLetter!!) && picked.geometry <= thresholdLift)
-        return if (okThreshold) picked.word else null
+        if (!okThreshold) return null
+        // Code 48: keep the next-best words that also passed the
+        // geometry gate, best rescore first, for the strip.
+        val pickedLower = picked.word.lowercase()
+        lastSwipeAlternatives = lastPassing
+            .filter { it.word.lowercase() != pickedLower }
+            .sortedBy { it.rescore }
+            .map { it.word }
+            .distinctBy { it.lowercase() }
+            .take(2)
+        return picked.word
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1229,7 +1422,7 @@ class KeyboardView @JvmOverloads constructor(
                 visitedLetters.clear()
                 cursorMode = false
                 spaceHeld = false
-                val hit = keyAt(event.x, event.y)
+                val hit = keyForTap(event.x, event.y)
                 pressedKey = hit?.key
                 pressedRect = hit?.rect
                 downAction = hit?.key?.action
@@ -1342,7 +1535,49 @@ class KeyboardView @JvmOverloads constructor(
                 // ignored: the finger stays on this
                 // gesture until it lifts, it does not
                 // start tracing a word or switch keys.
-                if (flickSecondary != null) return true
+                // Code 50 (Wilson: "Swiping I'm is impossible, just
+                // gives me 8"): i sits straight above k and m, so a
+                // swipe i -> m is a straight downward pull and met
+                // the flick test 30dp in, then every later move was
+                // ignored and "8" was typed. A flick is a short pull
+                // that stays near its own key: the finger is still
+                // traced while the flick is pending, and if it
+                // carries on past the middle of the row below, the
+                // flick is cancelled and the gesture is a swipe.
+                if (flickSecondary != null) {
+                    swipePoints.add(PointF(event.x, event.y))
+                    swipeTimes.add(event.eventTime)
+                    val startRect = pressedRect
+                    val limit = if (startRect != null) {
+                        startRect.bottom + rowHeight * 0.5f
+                    } else downPoint.y + dp(60f)
+                    if (event.y > limit ||
+                        kotlin.math.abs(event.x - downPoint.x) > dp(40f)
+                    ) {
+                        flickSecondary = null
+                        flickPull = 0f
+                        downKey = null // no second flick in this gesture
+                        // Re-trace the letters this path crossed
+                        // while the flick was pending.
+                        visitedLetters.clear()
+                        for (pt in swipePoints) {
+                            val s = keyAt(pt.x, pt.y)
+                            if (s != null && s.key.action == KeyAction.CHAR &&
+                                pt.x in s.rect.left..s.rect.right &&
+                                pt.y in s.rect.top..s.rect.bottom
+                            ) {
+                                val letter = s.key.output.lowercase()
+                                if (visitedLetters.isEmpty() || visitedLetters.last() != letter) {
+                                    visitedLetters.add(letter)
+                                }
+                            }
+                        }
+                        showKeyPopup()
+                        invalidate()
+                        return true
+                    }
+                    return true
+                }
                 if (!variantMode && !cursorMode && downKey != null &&
                     visitedLetters.size <= 1
                 ) {
@@ -1493,7 +1728,11 @@ class KeyboardView @JvmOverloads constructor(
                         visitedLetters.add(letter)
                     }
                 }
-                if (hit != null && hit.key != pressedKey) {
+                // Code 50: a predicted key stays pressed through small
+                // finger jitter; only a real slide (14dp+) switches.
+                val jitterOnly = downResolvedByPrior &&
+                    hypot(event.x - downPoint.x, event.y - downPoint.y) < dp(14f)
+                if (hit != null && hit.key != pressedKey && !jitterOnly) {
                     pressedKey = hit.key
                     pressedRect = hit.rect
                     showKeyPopup()
@@ -1765,7 +2004,8 @@ class KeyboardView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor(if (darkMode) Color.parseColor("#1F2937") else Color.parseColor("#D1D5DB"))
+        canvas.drawColor(palette.background)
+        trailPaint.color = palette.accentBottom
 
         for ((key, rect) in keyRects) {
             val isPressed = key == pressedKey
@@ -1795,16 +2035,15 @@ class KeyboardView @JvmOverloads constructor(
                 KeyAction.MODE, KeyAction.ENTER
             )
             val isShiftOn = key.action == KeyAction.SHIFT && shiftOn
-            val edgeColor = if (darkMode) "#0C121A" else "#243044"
+            // Code 51: colors come from the chosen theme.
+            val pal = palette
+            val edgeColor = pal.edge
             val (faceTop, faceBottom) = when {
-                isShiftOn && isPressed -> "#3B82F6" to "#1D4ED8"
-                isShiftOn -> "#60A5FA" to "#3B82F6"
-                isPressed && darkMode -> "#232E3D" to "#141B26"
-                isPressed -> "#E5E7EB" to "#D1D5DB"
-                isAction && darkMode -> "#4B5563" to "#374151"
-                isAction -> "#C2C7CE" to "#AEB3BA"
-                darkMode -> "#2A3546" to "#1F2937"
-                else -> "#FFFFFF" to "#E7E9EC"
+                isShiftOn && isPressed -> pal.accentBottom to pal.accentBottom
+                isShiftOn -> pal.accentTop to pal.accentBottom
+                isPressed -> pal.pressedTop to pal.pressedBottom
+                isAction -> pal.actionTop to pal.actionBottom
+                else -> pal.keyTop to pal.keyBottom
             }
             val edgeRect = RectF(rect).apply { offset(0f, dp(3f)) }
             val faceRect = RectF(rect).apply {
@@ -1817,19 +2056,24 @@ class KeyboardView @JvmOverloads constructor(
                 if (drop != 0f) offset(0f, drop)
             }
             keyPaint.shader = null
-            keyPaint.color = Color.parseColor(edgeColor)
+            keyPaint.color = edgeColor
             canvas.drawRoundRect(edgeRect, dp(8f), dp(8f), keyPaint)
             keyPaint.shader = LinearGradient(
                 faceRect.left, faceRect.top, faceRect.left, faceRect.bottom,
-                Color.parseColor(faceTop), Color.parseColor(faceBottom),
+                faceTop, faceBottom,
                 Shader.TileMode.CLAMP
             )
             canvas.drawRoundRect(faceRect, dp(8f), dp(8f), keyPaint)
             keyPaint.shader = null
+            pal.outline?.let { oc ->
+                outlinePaint.color = oc
+                outlinePaint.strokeWidth = dp(1f)
+                val o = RectF(faceRect).apply { inset(dp(0.5f), dp(0.5f)) }
+                canvas.drawRoundRect(o, dp(8f), dp(8f), outlinePaint)
+            }
             textPaint.color = when {
-                key.action == KeyAction.SHIFT && shiftOn -> Color.WHITE
-                darkMode -> Color.WHITE
-                else -> Color.BLACK
+                key.action == KeyAction.SHIFT && shiftOn -> pal.accentText
+                else -> pal.text
             }
             textPaint.textSize = when {
                 // Code 39: the emoji mode key is smaller than
@@ -1868,7 +2112,7 @@ class KeyboardView @JvmOverloads constructor(
                 // row below.
                 val p = flickPull
                 val primary = textPaint.color
-                val grey = if (darkMode) Color.parseColor("#9CA3AF") else Color.parseColor("#6B7280")
+                val grey = palette.hint
                 canvas.save()
                 canvas.clipRect(rect)
                 textPaint.alpha = ((1f - p) * 255f).toInt().coerceIn(0, 255)
@@ -1916,11 +2160,7 @@ class KeyboardView @JvmOverloads constructor(
                 if (hint != null) {
                     textPaint.typeface = Typeface.DEFAULT
                     textPaint.textSize = dp(11f)
-                    textPaint.color = if (darkMode) {
-                        Color.parseColor("#9CA3AF")
-                    } else {
-                        Color.parseColor("#6B7280")
-                    }
+                    textPaint.color = palette.hint
                     textPaint.textAlign = Paint.Align.RIGHT
                     canvas.drawText(
                         hint, faceRect.right - dp(5f), faceRect.top + dp(14f), textPaint
@@ -1980,26 +2220,27 @@ class KeyboardView @JvmOverloads constructor(
                 // dark edge 3dp below, gradient face.
                 val vEdge = RectF(vRect).apply { offset(0f, dp(3f)) }
                 val (vTop, vBottom) = if (i == variantSelected) {
-                    "#60A5FA" to "#3B82F6"
-                } else if (darkMode) {
-                    "#2A3546" to "#1F2937"
+                    palette.accentTop to palette.accentBottom
                 } else {
-                    "#FFFFFF" to "#E7E9EC"
+                    palette.keyTop to palette.keyBottom
                 }
                 keyPaint.shader = null
-                keyPaint.color = Color.parseColor(
-                    if (darkMode) "#0C121A" else "#243044"
-                )
+                keyPaint.color = palette.edge
                 canvas.drawRoundRect(vEdge, dp(8f), dp(8f), keyPaint)
                 keyPaint.shader = LinearGradient(
                     vRect.left, vRect.top, vRect.left, vRect.bottom,
-                    Color.parseColor(vTop), Color.parseColor(vBottom),
+                    vTop, vBottom,
                     Shader.TileMode.CLAMP
                 )
                 canvas.drawRoundRect(vRect, dp(8f), dp(8f), keyPaint)
                 keyPaint.shader = null
-                textPaint.color = if (i == variantSelected) Color.WHITE
-                    else if (darkMode) Color.WHITE else Color.BLACK
+                palette.outline?.let { oc ->
+                    outlinePaint.color = oc
+                    outlinePaint.strokeWidth = dp(1f)
+                    canvas.drawRoundRect(vRect, dp(8f), dp(8f), outlinePaint)
+                }
+                textPaint.color = if (i == variantSelected) palette.accentText
+                    else palette.text
                 textPaint.textSize = dp(22f)
                 val y = vRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
                 canvas.drawText(variant, vRect.centerX(), y, textPaint)
@@ -2014,7 +2255,7 @@ class KeyboardView @JvmOverloads constructor(
         // Space-cursor indicator.
         if (cursorMode) {
             textPaint.textSize = dp(14f)
-            textPaint.color = Color.parseColor("#3B82F6")
+            textPaint.color = palette.accentBottom
             canvas.drawText("◀ cursor ▶ ▲▼", width / 2f, dp(18f), textPaint)
         }
     }
