@@ -34,19 +34,26 @@ import androidx.appcompat.app.AppCompatDelegate
 object ThemeMode {
     fun current(settings: SharedPreferences): String {
         val mode = settings.getString("theme_mode", null)
-        if (mode == "light" || mode == "dark" || mode == "system") return mode
+        if (mode != null && mode in MODES) return mode
         return if (settings.getBoolean("dark_mode", false)) "dark" else "light"
     }
 
-    fun next(mode: String): String = when (mode) {
-        "light" -> "dark"
-        "dark" -> "system"
-        else -> "light"
-    }
+    /**
+     * Light -> Dark -> System -> Material You -> Omarchy -> Light.
+     * Material You (Android 12+) takes the keyboard's colors from the
+     * wallpaper and follows the device's dark mode like System; Omarchy
+     * uses one of the Omarchy laptop themes ("omarchy_theme"), so the
+     * phone keyboard matches KeyboardPOP on the laptop.
+     */
+    val MODES = listOf("light", "dark", "system", "dynamic", "omarchy")
+
+    fun next(mode: String): String = MODES[(MODES.indexOf(mode) + 1).mod(MODES.size)]
 
     fun label(mode: String): String = when (mode) {
         "dark" -> "Dark"
         "light" -> "Light"
+        "dynamic" -> "Material You"
+        "omarchy" -> "Omarchy"
         else -> "System"
     }
 
@@ -54,6 +61,11 @@ object ThemeMode {
         return when (current(settings)) {
             "dark" -> true
             "light" -> false
+            // An Omarchy theme is light or dark by its own background.
+            "omarchy" -> KeyboardPalette.omarchy(
+                OmarchyThemes.byId(settings.getString("omarchy_theme", null))
+            ).isDark
+            // "system" and "dynamic" follow the device.
             else -> {
                 // Code 34 (Wilson, Oct 30, 2026):
                 // System mode was stuck dark on his
@@ -109,9 +121,15 @@ object ThemeMode {
         }
     }
 
-    fun nightMode(mode: String): Int = when (mode) {
+    fun nightMode(mode: String, settings: SharedPreferences? = null): Int = when (mode) {
         "dark" -> AppCompatDelegate.MODE_NIGHT_YES
         "light" -> AppCompatDelegate.MODE_NIGHT_NO
+        "omarchy" -> {
+            val dark = KeyboardPalette.omarchy(
+                OmarchyThemes.byId(settings?.getString("omarchy_theme", null))
+            ).isDark
+            if (dark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+        }
         else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
     }
 }

@@ -90,15 +90,35 @@ class MainActivity : AppCompatActivity() {
 
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         val themeButton = findViewById<Button>(R.id.themeButton)
+        // Which Omarchy theme, shown only in Omarchy mode. Cycles through
+        // the stock Omarchy themes, the same ones KeyboardPOP follows on
+        // the laptop.
+        val omarchyThemeButton = findViewById<Button>(R.id.omarchyThemeButton)
         fun refreshThemeLabel() {
             val mode = ThemeMode.current(settings)
             themeButton.text =
                 "Theme: ${ThemeMode.label(mode)} (tap for ${ThemeMode.label(ThemeMode.next(mode))})"
+            omarchyThemeButton.visibility = if (mode == "omarchy") View.VISIBLE else View.GONE
+            val theme = OmarchyThemes.byId(settings.getString("omarchy_theme", null))
+            omarchyThemeButton.text =
+                "Omarchy theme: ${theme.name} (tap for ${OmarchyThemes.next(theme.id).name})"
         }
         refreshThemeLabel()
+        omarchyThemeButton.setOnClickListener {
+            val next = OmarchyThemes.next(settings.getString("omarchy_theme", OmarchyThemes.DEFAULT))
+            settings.edit().putString("omarchy_theme", next.id).apply()
+            AppCompatDelegate.setDefaultNightMode(ThemeMode.nightMode("omarchy", settings))
+            refreshThemeLabel()
+            Toast.makeText(
+                this,
+                "Omarchy theme: ${next.name}. The keyboard picks it up next time it opens.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
         themeButton.setOnClickListener {
             // Code 30 2nd commit: three modes now, in
-            // order Light -> Dark -> System -> Light.
+            // order Light -> Dark -> System -> Light. Now also
+            // Material You and Omarchy (see ThemeMode.MODES).
             // System means follow the device's own dark
             // mode, for both this screen and the
             // keyboard. The old dark_mode boolean is
@@ -119,7 +139,7 @@ class MainActivity : AppCompatActivity() {
             // no need to close and reopen the app.
             // The keyboard itself still picks the new
             // theme up next time it opens.
-            AppCompatDelegate.setDefaultNightMode(ThemeMode.nightMode(mode))
+            AppCompatDelegate.setDefaultNightMode(ThemeMode.nightMode(mode, settings))
             refreshThemeLabel()
             Toast.makeText(
                 this,
@@ -213,15 +233,19 @@ class MainActivity : AppCompatActivity() {
             val mode = settings.getString("one_handed", "full") ?: "full"
             oneHandedButton.text = when (mode) {
                 "left" -> "Keyboard width: Left-handed (tap for Right)"
-                "right" -> "Keyboard width: Right-handed (tap for Full)"
+                "right" -> "Keyboard width: Right-handed (tap for Floating)"
+                "floating" -> "Keyboard width: Floating (tap for Full)"
                 else -> "Keyboard width: Full (tap for Left-handed)"
             }
         }
         refreshOneHandedLabel()
         oneHandedButton.setOnClickListener {
+            // Floating: a card you drag by its handle, over the app
+            // instead of pushing it up.
             val next = when (settings.getString("one_handed", "full")) {
                 "full" -> "left"
                 "left" -> "right"
+                "right" -> "floating"
                 else -> "full"
             }
             settings.edit().putString("one_handed", next).apply()

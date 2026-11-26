@@ -133,6 +133,15 @@ class KeyboardView @JvmOverloads constructor(
             invalidate()
         }
 
+    // Every color the keys draw with (KeyboardPalette): Light, Dark,
+    // Material You, or an Omarchy theme. PressPopIME sets it with darkMode.
+    var palette: KeyboardPalette = KeyboardPalette.LIGHT
+        set(value) {
+            field = value
+            trailPaint.color = value.accent
+            invalidate()
+        }
+
     // Key tap pop sound, Oct 29, 2026 (Wilson: no sound at all before
     // this — haptics only). A short synthesized pop in res/raw, played
     // through SoundPool on every tap commit, so it sounds like a pop
@@ -344,12 +353,9 @@ class KeyboardView @JvmOverloads constructor(
                     // above a pressed key reads as a larger
                     // version of that key, LeanType-style.
                     cornerRadius = 8 * density
-                    setColor(
-                        if (darkMode) Color.parseColor("#374151")
-                        else Color.WHITE
-                    )
+                    setColor(palette.popup)
                 }
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(palette.text)
             }
             val popupW = maxOf(rect.width() * 1.25f, dp(56f))
             val popupH = rect.height() * 1.45f + dp(12f)
@@ -1765,7 +1771,7 @@ class KeyboardView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor(if (darkMode) Color.parseColor("#1F2937") else Color.parseColor("#D1D5DB"))
+        canvas.drawColor(palette.keysBackground)
 
         for ((key, rect) in keyRects) {
             val isPressed = key == pressedKey
@@ -1795,16 +1801,13 @@ class KeyboardView @JvmOverloads constructor(
                 KeyAction.MODE, KeyAction.ENTER
             )
             val isShiftOn = key.action == KeyAction.SHIFT && shiftOn
-            val edgeColor = if (darkMode) "#0C121A" else "#243044"
+            val edgeColor = palette.edge
             val (faceTop, faceBottom) = when {
-                isShiftOn && isPressed -> "#3B82F6" to "#1D4ED8"
-                isShiftOn -> "#60A5FA" to "#3B82F6"
-                isPressed && darkMode -> "#232E3D" to "#141B26"
-                isPressed -> "#E5E7EB" to "#D1D5DB"
-                isAction && darkMode -> "#4B5563" to "#374151"
-                isAction -> "#C2C7CE" to "#AEB3BA"
-                darkMode -> "#2A3546" to "#1F2937"
-                else -> "#FFFFFF" to "#E7E9EC"
+                isShiftOn && isPressed -> palette.accent to palette.accentDark
+                isShiftOn -> palette.accentLight to palette.accent
+                isPressed -> palette.pressedTop to palette.pressedBottom
+                isAction -> palette.actionTop to palette.actionBottom
+                else -> palette.keyTop to palette.keyBottom
             }
             val edgeRect = RectF(rect).apply { offset(0f, dp(3f)) }
             val faceRect = RectF(rect).apply {
@@ -1817,19 +1820,18 @@ class KeyboardView @JvmOverloads constructor(
                 if (drop != 0f) offset(0f, drop)
             }
             keyPaint.shader = null
-            keyPaint.color = Color.parseColor(edgeColor)
+            keyPaint.color = edgeColor
             canvas.drawRoundRect(edgeRect, dp(8f), dp(8f), keyPaint)
             keyPaint.shader = LinearGradient(
                 faceRect.left, faceRect.top, faceRect.left, faceRect.bottom,
-                Color.parseColor(faceTop), Color.parseColor(faceBottom),
+                faceTop, faceBottom,
                 Shader.TileMode.CLAMP
             )
             canvas.drawRoundRect(faceRect, dp(8f), dp(8f), keyPaint)
             keyPaint.shader = null
             textPaint.color = when {
-                key.action == KeyAction.SHIFT && shiftOn -> Color.WHITE
-                darkMode -> Color.WHITE
-                else -> Color.BLACK
+                key.action == KeyAction.SHIFT && shiftOn -> palette.onAccent
+                else -> palette.text
             }
             textPaint.textSize = when {
                 // Code 39: the emoji mode key is smaller than
@@ -1868,7 +1870,7 @@ class KeyboardView @JvmOverloads constructor(
                 // row below.
                 val p = flickPull
                 val primary = textPaint.color
-                val grey = if (darkMode) Color.parseColor("#9CA3AF") else Color.parseColor("#6B7280")
+                val grey = palette.hint
                 canvas.save()
                 canvas.clipRect(rect)
                 textPaint.alpha = ((1f - p) * 255f).toInt().coerceIn(0, 255)
@@ -1916,11 +1918,7 @@ class KeyboardView @JvmOverloads constructor(
                 if (hint != null) {
                     textPaint.typeface = Typeface.DEFAULT
                     textPaint.textSize = dp(11f)
-                    textPaint.color = if (darkMode) {
-                        Color.parseColor("#9CA3AF")
-                    } else {
-                        Color.parseColor("#6B7280")
-                    }
+                    textPaint.color = palette.hint
                     textPaint.textAlign = Paint.Align.RIGHT
                     canvas.drawText(
                         hint, faceRect.right - dp(5f), faceRect.top + dp(14f), textPaint
@@ -1980,26 +1978,22 @@ class KeyboardView @JvmOverloads constructor(
                 // dark edge 3dp below, gradient face.
                 val vEdge = RectF(vRect).apply { offset(0f, dp(3f)) }
                 val (vTop, vBottom) = if (i == variantSelected) {
-                    "#60A5FA" to "#3B82F6"
-                } else if (darkMode) {
-                    "#2A3546" to "#1F2937"
+                    palette.accentLight to palette.accent
                 } else {
-                    "#FFFFFF" to "#E7E9EC"
+                    palette.keyTop to palette.keyBottom
                 }
                 keyPaint.shader = null
-                keyPaint.color = Color.parseColor(
-                    if (darkMode) "#0C121A" else "#243044"
-                )
+                keyPaint.color = palette.edge
                 canvas.drawRoundRect(vEdge, dp(8f), dp(8f), keyPaint)
                 keyPaint.shader = LinearGradient(
                     vRect.left, vRect.top, vRect.left, vRect.bottom,
-                    Color.parseColor(vTop), Color.parseColor(vBottom),
+                    vTop, vBottom,
                     Shader.TileMode.CLAMP
                 )
                 canvas.drawRoundRect(vRect, dp(8f), dp(8f), keyPaint)
                 keyPaint.shader = null
-                textPaint.color = if (i == variantSelected) Color.WHITE
-                    else if (darkMode) Color.WHITE else Color.BLACK
+                textPaint.color = if (i == variantSelected) palette.onAccent
+                    else palette.text
                 textPaint.textSize = dp(22f)
                 val y = vRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
                 canvas.drawText(variant, vRect.centerX(), y, textPaint)
@@ -2014,7 +2008,7 @@ class KeyboardView @JvmOverloads constructor(
         // Space-cursor indicator.
         if (cursorMode) {
             textPaint.textSize = dp(14f)
-            textPaint.color = Color.parseColor("#3B82F6")
+            textPaint.color = palette.accent
             canvas.drawText("◀ cursor ▶ ▲▼", width / 2f, dp(18f), textPaint)
         }
     }

@@ -25,7 +25,10 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.MotionEvent
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
+import android.widget.FrameLayout
 import android.widget.Button
 import android.widget.GridLayout
 import android.widget.ImageView
@@ -290,6 +293,14 @@ class PressPopIME : InputMethodService() {
     }
 
     private var darkMode = false
+    // Floating keyboard ("one_handed" = "floating"): the input view is the
+    // full screen height, transparent, with the keyboard as a card inside
+    // it. Only the card takes touches and the app is not resized, so it
+    // floats over the app; the handle on top drags it.
+    private var floatingRoot: FrameLayout? = null
+    private var floatingCard: LinearLayout? = null
+    // The colors in use (KeyboardPalette), refreshed with darkMode.
+    private var palette = KeyboardPalette.LIGHT
     // Auto-capitalization for this field: on for plain text, off for
     // passwords, email addresses, URLs, numbers and phone fields.
     // Password-field safety, code 26 (Wilson: "Just make
@@ -357,8 +368,10 @@ class PressPopIME : InputMethodService() {
         // System (follow the device), resolved here so
         // the keyboard and the app screen agree.
         darkMode = ThemeMode.isDark(this, settings)
+        palette = KeyboardPalette.forSettings(this, settings)
         if (::keyboardView.isInitialized) {
             keyboardView.darkMode = darkMode
+            keyboardView.palette = palette
             // Code 34: redraw the keys at once.
             // Setting darkMode alone did not
             // repaint the canvas until the next
@@ -370,13 +383,19 @@ class PressPopIME : InputMethodService() {
         }
         if (::strip.isInitialized) {
             strip.setBackgroundColor(
-                if (darkMode) Color.parseColor("#111827") else Color.WHITE
+                palette.strip
             )
         }
         if (::languageButton.isInitialized) {
             languageButton.setTextColor(
-                if (darkMode) Color.WHITE else Color.BLACK
+                palette.text
             )
+        }
+        floatingCard?.let { card ->
+            (card.background as? GradientDrawable)?.apply {
+                setColor(palette.keysBackground)
+                setStroke((1 * resources.displayMetrics.density).toInt(), palette.edge)
+            }
         }
     }
 
@@ -390,6 +409,7 @@ class PressPopIME : InputMethodService() {
         clipboard = ClipboardHistory(this)
         val settings = getSharedPreferences("presspop_settings", MODE_PRIVATE)
         darkMode = ThemeMode.isDark(this, settings)
+        palette = KeyboardPalette.forSettings(this, settings)
         ErrorReporter.install(this)
         // Restore a custom language pack, if one was installed.
         run {
@@ -468,7 +488,7 @@ class PressPopIME : InputMethodService() {
         }
         strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(if (darkMode) Color.parseColor("#111827") else Color.WHITE)
+            setBackgroundColor(palette.strip)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 (56 * resources.displayMetrics.density).toInt()
@@ -483,7 +503,7 @@ class PressPopIME : InputMethodService() {
             text = "📋"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(palette.text)
             setOnClickListener { toggleClipboardPanel() }
             strip.addView(this)
         }
@@ -501,7 +521,7 @@ class PressPopIME : InputMethodService() {
             text = languageLabel()
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 16f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(palette.text)
             setOnClickListener { toggleLanguage() }
             strip.addView(this)
         }
@@ -514,7 +534,7 @@ class PressPopIME : InputMethodService() {
             text = "GIF"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 16f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(palette.text)
             setOnClickListener { toggleGifPanel() }
             strip.addView(this)
         }
@@ -523,7 +543,7 @@ class PressPopIME : InputMethodService() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
                 textAlignment = View.TEXT_ALIGNMENT_CENTER
                 textSize = 17f
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(palette.text)
                 setOnClickListener { onSuggestionTapped(index) }
                 strip.addView(this)
             }
@@ -539,7 +559,7 @@ class PressPopIME : InputMethodService() {
             text = "🎤"
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(palette.text)
             setOnClickListener { handleVoice() }
             strip.addView(this)
         }
@@ -548,7 +568,7 @@ class PressPopIME : InputMethodService() {
 
         clipboardPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (darkMode) Color.parseColor("#1F2937") else Color.parseColor("#F3F4F6"))
+            setBackgroundColor(palette.panel)
             visibility = View.GONE
         }
 
@@ -558,7 +578,7 @@ class PressPopIME : InputMethodService() {
         // search box focus trick is needed.
         gifPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (darkMode) Color.parseColor("#1F2937") else Color.WHITE)
+            setBackgroundColor(palette.surface)
             visibility = View.GONE
         }
         LinearLayout(this).apply {
@@ -567,7 +587,7 @@ class PressPopIME : InputMethodService() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 text = "Search GIFs…"
                 textSize = 16f
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(palette.text)
                 setPadding(24, 16, 24, 16)
             }
             addView(gifQueryText)
@@ -599,7 +619,7 @@ class PressPopIME : InputMethodService() {
         gifInfoText = TextView(this).apply {
             text = "Type a search with the keyboard, then tap Search. Tap a GIF to insert it."
             textSize = 14f
-            setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            setTextColor(palette.text)
             setPadding(24, 8, 24, 8)
             gifPanel.addView(this)
         }
@@ -1085,6 +1105,11 @@ class PressPopIME : InputMethodService() {
             }
         }
 
+        val oneHanded = settings.getString("one_handed", "full") ?: "full"
+        if (oneHanded == "floating") return buildFloatingView(settings)
+        floatingRoot = null
+        floatingCard = null
+
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(autofillRow)
@@ -1093,7 +1118,6 @@ class PressPopIME : InputMethodService() {
             addView(gifPanel)
             // One-handed mode: shrink the keyboard to 85% width,
             // pinned left or right. Full width is the default.
-            val oneHanded = settings.getString("one_handed", "full") ?: "full"
             if (oneHanded != "full") {
                 val screenW = resources.displayMetrics.widthPixels
                 keyboardView.layoutParams = LinearLayout.LayoutParams(
@@ -1105,6 +1129,141 @@ class PressPopIME : InputMethodService() {
             }
             addView(keyboardView)
         }
+    }
+
+    /**
+     * The floating keyboard: a rounded card (drag handle, strip, panels,
+     * keys) at a remembered spot inside a transparent, full-height input
+     * view. onComputeInsets lets touches outside the card through to the
+     * app and keeps the app from resizing. Width is 85% of the screen, at
+     * most 560dp, so it stays a card on a tablet.
+     */
+    private fun buildFloatingView(settings: android.content.SharedPreferences): View {
+        val density = resources.displayMetrics.density
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
+        val cardW = minOf((screenW * 0.85).toInt(), (560 * density).toInt())
+        val radius = 16 * density
+
+        val handle = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (26 * density).toInt()
+            )
+            setBackgroundColor(palette.strip)
+            addView(View(this@PressPopIME).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = 3 * density
+                    setColor(palette.hint)
+                }
+                layoutParams = FrameLayout.LayoutParams(
+                    (44 * density).toInt(), (5 * density).toInt(), Gravity.CENTER
+                )
+            })
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = radius
+                setColor(palette.keysBackground)
+                setStroke((1 * density).toInt(), palette.edge)
+            }
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            clipToOutline = true
+            elevation = 8 * density
+            addView(autofillRow)
+            addView(handle)
+            addView(strip)
+            addView(clipboardPanel)
+            addView(gifPanel)
+            keyboardView.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            addView(keyboardView)
+            layoutParams = FrameLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val root = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenH)
+            setBackgroundColor(Color.TRANSPARENT)
+            addView(card)
+        }
+        floatingRoot = root
+        floatingCard = card
+
+        // The part of the input view that is really on screen: the system
+        // can give the keyboard window less than the full screen height
+        // (navigation bar, landscape), and the card must stay inside it.
+        fun usableHeight(): Int {
+            val loc = IntArray(2)
+            root.getLocationInWindow(loc)
+            val windowH = root.rootView.height
+            return if (windowH > 0) minOf(root.height, windowH - loc[1]) else root.height
+        }
+
+        // Where the card goes, kept as fractions of the free space so it
+        // survives rotation: 0.5 / 1.0 is centered at the bottom.
+        fun place(fx: Float, fy: Float) {
+            val freeX = (root.width - card.width).coerceAtLeast(0)
+            val freeY = (usableHeight() - card.height - (16 * density).toInt()).coerceAtLeast(0)
+            val params = card.layoutParams as FrameLayout.LayoutParams
+            params.leftMargin = (freeX * fx.coerceIn(0f, 1f)).toInt()
+            params.topMargin = (freeY * fy.coerceIn(0f, 1f)).toInt()
+            card.layoutParams = params
+        }
+        root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or_, ob ->
+            if (r - l != or_ - ol || b - t != ob - ot) {
+                root.post {
+                    place(
+                        settings.getFloat("float_x", 0.5f),
+                        settings.getFloat("float_y", 1f)
+                    )
+                }
+            }
+        }
+        card.addOnLayoutChangeListener { _, _, t, _, b, _, ot, _, ob ->
+            // The card's height changes with panels (clipboard, GIFs):
+            // keep it on screen.
+            if (b - t != ob - ot) root.post {
+                place(settings.getFloat("float_x", 0.5f), settings.getFloat("float_y", 1f))
+            }
+        }
+
+        var downX = 0f
+        var downY = 0f
+        var startLeft = 0
+        var startTop = 0
+        handle.setOnTouchListener { _, event ->
+            val params = card.layoutParams as FrameLayout.LayoutParams
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startLeft = params.leftMargin
+                    startTop = params.topMargin
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val maxLeft = (root.width - card.width).coerceAtLeast(0)
+                    val maxTop = (usableHeight() - card.height).coerceAtLeast(0)
+                    params.leftMargin = (startLeft + (event.rawX - downX)).toInt().coerceIn(0, maxLeft)
+                    params.topMargin = (startTop + (event.rawY - downY)).toInt().coerceIn(0, maxTop)
+                    card.layoutParams = params
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val freeX = (root.width - card.width).coerceAtLeast(1)
+                    val freeY = (usableHeight() - card.height - (16 * density).toInt()).coerceAtLeast(1)
+                    settings.edit()
+                        .putFloat("float_x", params.leftMargin.toFloat() / freeX)
+                        .putFloat("float_y", params.topMargin.toFloat() / freeY)
+                        .apply()
+                    true
+                }
+                else -> false
+            }
+        }
+        return root
     }
 
     private fun languageLabel(): String = when (Dictionary.languageCode) {
@@ -1368,7 +1527,7 @@ class PressPopIME : InputMethodService() {
             TextView(this).apply {
                 this.text = text
                 textSize = 16f
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(palette.text)
                 setPadding(24, 16, 24, 16)
                 maxLines = 1
                 if (onClick != null) setOnClickListener { onClick() }
@@ -1964,8 +2123,8 @@ class PressPopIME : InputMethodService() {
         suggestionViews.forEachIndexed { i, view ->
             view.text = texts[i]
             view.setTextColor(
-                if (i == 1 && texts[i].isNotEmpty()) Color.parseColor("#3B82F6")
-                else if (darkMode) Color.WHITE else Color.BLACK
+                if (i == 1 && texts[i].isNotEmpty()) palette.accent
+                else palette.text
             )
         }
     }
@@ -2009,12 +2168,9 @@ class PressPopIME : InputMethodService() {
                     shape = GradientDrawable.RECTANGLE
                     // Same 8dp corners as the keys, Nov 2, 2026.
                     cornerRadius = 8 * density
-                    setColor(
-                        if (darkMode) Color.parseColor("#374151")
-                        else Color.WHITE
-                    )
+                    setColor(palette.popup)
                 }
-                setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+                setTextColor(palette.text)
             }
             bubble.measure(
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -2322,6 +2478,25 @@ class PressPopIME : InputMethodService() {
     override fun onComputeInsets(outInsets: Insets) {
         super.onComputeInsets(outInsets)
         if (isFullscreenMode) return
+        val root = floatingRoot
+        val card = floatingCard
+        if (root != null && card != null && root.isAttachedToWindow && root.height > 0) {
+            // Floating: the app keeps its full height (content and
+            // visible insets at the bottom of the input view), and only
+            // the card takes touches; everything around it reaches the app.
+            val rootLoc = IntArray(2)
+            root.getLocationInWindow(rootLoc)
+            val bottom = rootLoc[1] + root.height
+            outInsets.contentTopInsets = bottom
+            outInsets.visibleTopInsets = bottom
+            val cardLoc = IntArray(2)
+            card.getLocationInWindow(cardLoc)
+            outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_REGION
+            outInsets.touchableRegion.set(
+                cardLoc[0], cardLoc[1], cardLoc[0] + card.width, cardLoc[1] + card.height
+            )
+            return
+        }
         val input = if (::keyboardView.isInitialized) {
             keyboardView.parent as? View
         } else null
@@ -2342,11 +2517,11 @@ class PressPopIME : InputMethodService() {
         val chipW = (240 * density).toInt()
         val stylesBuilder = UiVersions.newStylesBuilder()
         val title = androidx.autofill.inline.common.TextViewStyle.Builder()
-            .setTextColor(if (darkMode) Color.WHITE else Color.BLACK)
+            .setTextColor(palette.text)
             .setTextSize(14f)
             .build()
         val chip = androidx.autofill.inline.common.ViewStyle.Builder()
-            .setBackgroundColor(if (darkMode) Color.parseColor("#374151") else Color.WHITE)
+            .setBackgroundColor(palette.popup)
             .setPadding(
                 (12 * density).toInt(),
                 (6 * density).toInt(),

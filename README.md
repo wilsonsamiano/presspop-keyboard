@@ -65,10 +65,18 @@ Every key, not just letters:
   stored on this device only, capped at 20 items, with a one-tap
   Clear in the panel. Clear it after pasting anything sensitive.
 - **Number row.** Toggle it in the app: a 1–0 row above the letters.
-- **One-handed mode.** In the app, cycle Full → Left-handed →
-  Right-handed: the keyboard shrinks to 85% width and pins to that
-  side. Switch keyboards away and back to apply theme, number row,
-  and one-handed changes.
+- **One-handed and floating.** In the app, cycle Full → Left-handed →
+  Right-handed → Floating. One-handed shrinks the keyboard to 85% width
+  and pins it to that side. Floating turns it into a rounded card over
+  the app (the app is not pushed up); drag it by the handle on top, and
+  it stays where you leave it. Switch keyboards away and back to apply
+  theme, number row, and width changes.
+- **Themes.** Light, Dark, System (follows the device), **Material You**
+  (Android 12+: colors from your wallpaper, light or dark with the
+  device), and **Omarchy**: the stock Omarchy themes (Tokyo Night,
+  Catppuccin, Gruvbox, Nord, Rosé Pine and more), so the keyboard matches
+  KeyboardPOP on an Omarchy laptop. Pick the Omarchy theme with the button
+  under Theme.
 
 ## Features added in v4
 

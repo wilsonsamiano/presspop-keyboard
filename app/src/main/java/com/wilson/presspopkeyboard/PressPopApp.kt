@@ -27,7 +27,7 @@ class PressPopApp : Application() {
         // the device). Old dark_mode boolean is only a
         // fallback inside ThemeMode.current().
         AppCompatDelegate.setDefaultNightMode(
-            ThemeMode.nightMode(ThemeMode.current(settings))
+            ThemeMode.nightMode(ThemeMode.current(settings), settings)
         )
     }
 }
